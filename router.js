@@ -73,6 +73,12 @@ export class Router {
     this.missFile = join(config.cacheDir, 'misses.jsonl')
   }
 
+  /** Settings changed: rebuild the catalog and start every conversation's selection fresh. */
+  reconfigure() {
+    this.catalog = undefined
+    this.agents = new WeakMap()
+  }
+
   // ---------------------------------------------------------------- state
 
   stateOf(agent) {

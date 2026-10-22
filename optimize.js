@@ -1,9 +1,10 @@
 /**
  * Background description optimizer. While no agent turn is running, it asks
- * a model (through the harness's own `ctx.llm` providers) to write a routing
- * card for each skill, tool group and lone tool, checks the card against the
- * source text, and stores it in an overlay file. Source files are only
- * edited when `writeBack` is on.
+ * a model (an OpenAI-compatible endpoint when `optimizer.baseUrl` is set,
+ * otherwise the harness's own `ctx.llm` providers) to write a routing card for
+ * each skill, tool group and lone tool, checks the card against the source
+ * text, and stores it in an overlay file. Source files are only edited when
+ * `writeBack` is on.
  */
 
 import { readFile, writeFile, copyFile } from 'node:fs/promises'
@@ -154,6 +155,46 @@ export async function collectText(stream) {
   return text
 }
 
+/**
+ * One non-streaming chat completion from an OpenAI-compatible endpoint.
+ * @param options - `baseUrl` (e.g. `http://127.0.0.1:11434/v1`), `apiKey`, `model`,
+ *   `system`, `prompt`, `maxTokens`, `signal`, optional `fetch`.
+ * @returns the reply text.
+ */
+export async function chatCompletion({ baseUrl, apiKey, model, system, prompt, maxTokens, signal, fetch: fetchImpl = globalThis.fetch }) {
+  const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+  const headers = { 'content-type': 'application/json' }
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`
+  const response = await fetchImpl(url, {
+    method: 'POST',
+    headers,
+    signal,
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      stream: false,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  })
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const body = await response.json()
+      detail = body?.error?.message ?? body?.error ?? ''
+    } catch {
+      // body was not JSON
+    }
+    throw new Error(`${url} returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+  }
+  const body = await response.json()
+  const text = body?.choices?.[0]?.message?.content
+  if (typeof text !== 'string') throw new Error(`${url} returned no message content`)
+  return text
+}
+
 const userMessage = (text) => ({
   id: randomUUID(),
   role: 'user',
@@ -193,8 +234,9 @@ export class Optimizer {
    * @param options - `config`, `store` (CardStore), `logger`, `llm` getter, `skills` getter,
    *   `items` (returns current `{ kind, key, item, source }` jobs), `onCards` (called after a save).
    */
-  constructor({ config, store, logger, llm, loadSource, items, onCards, fallbackRoute }) {
+  constructor({ config, store, logger, llm, loadSource, items, onCards, fallbackRoute, fetch: fetchImpl = globalThis.fetch }) {
     this.config = config
+    this.fetch = fetchImpl
     this.fallbackRoute = fallbackRoute
     this.store = store
     this.logger = logger
@@ -230,7 +272,7 @@ export class Optimizer {
   }
 
   start() {
-    if (!this.config.optimizer.enabled) return
+    if (!this.config.optimizer.enabled || this.timer) return
     const tick = () => {
       if (this.stopped) return
       this.runOnce().catch((error) => this.logger.debug(`[dynamic-router] optimizer pass failed: ${error?.message ?? error}`))
@@ -244,7 +286,19 @@ export class Optimizer {
   stop() {
     this.stopped = true
     if (this.timer) clearTimeout(this.timer)
+    this.timer = undefined
     this.abort?.abort(new Error('router stopped'))
+  }
+
+  /** Settings changed: forget failures from the old route and restart the loop. */
+  reconfigure() {
+    this.stop()
+    for (const [key, entry] of this.store.map) {
+      if (entry.status === 'failed') this.store.map.delete(key)
+    }
+    this.lastError = undefined
+    this.stopped = false
+    this.start()
   }
 
   /** Jobs whose card is missing or stale, skipping pinned and recently failed ones. */
@@ -261,21 +315,25 @@ export class Optimizer {
   }
 
   /**
-   * The configured provider/model pair, or the route of the latest
-   * conversation request when both are left empty.
-   * @returns `{ provider, model }` or undefined.
+   * Where optimizer calls go: the direct endpoint, the configured
+   * provider/model pair, or the route of the latest conversation request.
+   * @returns `{ baseUrl, apiKey, model, label }`, `{ provider, model, label }`, or undefined.
    */
   route() {
-    const { provider, model } = this.config.optimizer
-    if (provider && model) return { provider, model }
-    return this.fallbackRoute?.()
+    const { baseUrl, apiKey, provider, model } = this.config.optimizer
+    if (baseUrl) return model ? { baseUrl, apiKey, model, label: `${model} @ ${baseUrl}` } : undefined
+    if (provider && model) return { provider, model, label: `${provider}/${model}` }
+    const fallback = this.fallbackRoute?.()
+    return fallback ? { ...fallback, label: `${fallback.provider}/${fallback.model}` } : undefined
   }
 
   /** Process jobs one at a time while idle. */
   async runOnce() {
     if (this.running || !this.idle) return
-    const llm = this.llm()
-    if (!llm || typeof llm.stream !== 'function' || !this.route()) return
+    const route = this.route()
+    if (!route) return
+    const llm = route.baseUrl ? undefined : this.llm()
+    if (!route.baseUrl && (!llm || typeof llm.stream !== 'function')) return
     const jobs = this.pending()
     if (jobs.length === 0) return
     this.running = true
@@ -299,7 +357,8 @@ export class Optimizer {
 
   async optimize(llm, job) {
     const { maxTokens, writeBack } = this.config.optimizer
-    const { provider, model } = this.route()
+    const route = this.route()
+    const { model } = route
     const controller = new AbortController()
     this.abort = controller
     let source
@@ -311,15 +370,26 @@ export class Optimizer {
     }
     try {
       const prompt = `KIND: ${job.kind}\nNAME: ${job.name}\n\nSOURCE:\n${source}`
-      const text = await collectText(
-        llm.stream({
-          provider,
+      const text = route.baseUrl
+        ? await chatCompletion({
+          baseUrl: route.baseUrl,
+          apiKey: route.apiKey,
           model,
+          system: SYSTEM_PROMPT,
+          prompt,
           maxTokens,
-          messages: [systemMessage(SYSTEM_PROMPT), userMessage(prompt)],
           signal: controller.signal,
-        }),
-      )
+          fetch: this.fetch,
+        })
+        : await collectText(
+          llm.stream({
+            provider: route.provider,
+            model,
+            maxTokens,
+            messages: [systemMessage(SYSTEM_PROMPT), userMessage(prompt)],
+            signal: controller.signal,
+          }),
+        )
       const result = validateCard(extractJson(text), `${job.name}\n${source}`, job.kind)
       if (result.error) {
         this.failed += 1
@@ -343,8 +413,8 @@ export class Optimizer {
       this.lastError = error?.message ?? String(error)
       this.store.set(job.key, { status: 'failed', sourceHash: job.hash, model, at: Date.now(), error: this.lastError })
       this.logger.warn(
-        `[dynamic-router] optimizer call to ${provider}/${model} failed (${this.lastError}). ` +
-          'Pick a working provider and model in the plugin settings (optimizer.provider / optimizer.model), or turn optimizer.enabled off.',
+        `[dynamic-router] optimizer call to ${route.label} failed (${this.lastError}). ` +
+          'Check the optimizer base URL, API key and model in the plugin settings, or turn the optimizer off.',
       )
       return 'failed'
     } finally {

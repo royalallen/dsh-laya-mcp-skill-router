@@ -9,7 +9,8 @@
  * that was left out.
  */
 
-import { Config, LOG_LEVELS, resolveConfig } from './config.js'
+import { Config, LOG_LEVELS, configWarnings, resolveConfig, unwrapConfig } from './config.js'
+import { sidecarClient } from './laya.js'
 import { EmbeddingIndex } from './recall.js'
 import { CardStore, Optimizer } from './optimize.js'
 import { HINT_CONTEXT, Router } from './router.js'
@@ -21,9 +22,9 @@ export { Config }
 
 const HINT_ORDER = 130
 
-const makeLogger = (ctx, level) => {
+const makeLogger = (ctx, config) => {
   const emit = (at, method, message) => {
-    if (LOG_LEVELS[level] < LOG_LEVELS[at]) return
+    if (LOG_LEVELS[config.logLevel] < LOG_LEVELS[at]) return
     const sink = ctx.logger
     const fn = sink?.[method]
     if (typeof fn === 'function') fn.call(sink, message)
@@ -45,22 +46,41 @@ const optional = (ctx, key) => {
   }
 }
 
+const describe = (config, ctx) => {
+  const { optimizer } = config
+  const optimizerRoute = !optimizer.enabled
+    ? 'off'
+    : optimizer.baseUrl
+      ? `${optimizer.model || '(no model)'} @ ${optimizer.baseUrl}`
+      : optimizer.provider && optimizer.model ? `${optimizer.provider}/${optimizer.model}` : 'conversation model'
+  const laya = config.selector !== 'laya'
+    ? 'off'
+    : optional(ctx, 'laya') ? 'dsh-laya' : config.layaUrl ? `sidecar @ ${config.layaUrl}` : 'not available'
+  return (
+    `selector=${config.selector} · laya=${laya} · ` +
+    `embeddings=${config.embeddingsUrl ? `${config.embeddingModel} @ ${config.embeddingsUrl}` : 'off'} · ` +
+    `optimizer=${optimizerRoute} · ${config.apply ? 'filtering' : 'dry run (apply: false)'}`
+  )
+}
+
 /** Cordis plugin entry. */
 export function apply(ctx, rawConfig) {
-  const config = resolveConfig(rawConfig)
-  const logger = makeLogger(ctx, config.logLevel)
+  const config = { ...resolveConfig(unwrapConfig(rawConfig)) }
+  const logger = makeLogger(ctx, config)
   const cards = new CardStore(config.cacheDir)
   const embeddings = new EmbeddingIndex({
     url: config.embeddingsUrl,
     model: config.embeddingModel,
+    apiKey: config.embeddingsApiKey,
     cacheDir: config.cacheDir,
     logger,
   })
+  let sidecar = config.layaUrl ? sidecarClient(config.layaUrl) : undefined
   const services = () => ({
     tools: ctx.tools,
     skills: optional(ctx, 'skills'),
     workingDirectory: optional(ctx, 'workingDirectory'),
-    laya: config.selector === 'laya' ? optional(ctx, 'laya') : undefined,
+    laya: config.selector === 'laya' ? optional(ctx, 'laya') ?? sidecar : undefined,
   })
   const router = new Router({ config, logger, cards, embeddings, services })
   const optimizer = new Optimizer({
@@ -72,6 +92,26 @@ export function apply(ctx, rawConfig) {
     items: () => router.optimizerJobs(),
     onCards: () => router.cardsChanged(),
     fallbackRoute: () => router.lastRoute,
+  })
+
+  ctx.on('loader/volatile-update', () => {
+    let next
+    try {
+      next = resolveConfig(unwrapConfig(rawConfig))
+    } catch (error) {
+      logger.warn(`[dynamic-router] ignored a settings change: ${error?.message ?? error}`)
+      return
+    }
+    const previous = { ...config, optimizer: { ...config.optimizer } }
+    Object.assign(config, next)
+    if (next.layaUrl !== previous.layaUrl) sidecar = next.layaUrl ? sidecarClient(next.layaUrl) : undefined
+    embeddings
+      .reconfigure({ url: next.embeddingsUrl, model: next.embeddingModel, apiKey: next.embeddingsApiKey })
+      .catch((error) => logger.warn(`[dynamic-router] could not switch embeddings: ${error?.message ?? error}`))
+    if (JSON.stringify(next.optimizer) !== JSON.stringify(previous.optimizer)) optimizer.reconfigure()
+    router.reconfigure()
+    for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
+    logger.info(`[dynamic-router] settings applied · ${describe(config, ctx)}`)
   })
 
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => router.noteClaimed(agent, message, turn))
@@ -112,15 +152,12 @@ export function apply(ctx, rawConfig) {
         if (disposed) return
         router.cardsChanged()
         optimizer.start()
-        logger.info(
-          `[dynamic-router] ready · selector=${config.selector} · embeddings=${config.embeddingsUrl ? `${config.embeddingModel} @ ${config.embeddingsUrl}` : 'off'} · ` +
-            `optimizer=${config.optimizer.enabled ? (config.optimizer.provider ? `${config.optimizer.provider}/${config.optimizer.model}` : 'conversation model') : 'off'} · ` +
-            `${config.apply ? 'filtering' : 'dry run (apply: false)'}`,
-        )
-        if (config.selector === 'laya' && !optional(ctx, 'laya')) {
+        logger.info(`[dynamic-router] ready · ${describe(config, ctx)}`)
+        for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
+        if (config.selector === 'laya' && !optional(ctx, 'laya') && !config.layaUrl) {
           logger.warn(
-            '[dynamic-router] selector is "laya" but the laya service is not mounted yet. Routing uses recall only ' +
-              'until dsh-laya loads. Install and enable dsh-laya, or set selector: embeddings to silence this.',
+            '[dynamic-router] selector is "laya" but neither dsh-laya nor a Laya URL is available, so routing uses recall only. ' +
+              'Install dsh-laya, set the Laya URL to a running `laya-mcp serve`, or set selector to embeddings to silence this.',
           )
         }
       })

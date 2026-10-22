@@ -120,11 +120,12 @@ export function cosine(a, b) {
  */
 export class EmbeddingIndex {
   /**
-   * @param options - `url`, `model`, `cacheDir`, `logger`, optional `fetch`, `batchSize`, `timeoutMs`.
+   * @param options - `url`, `model`, optional `apiKey`, `cacheDir`, `logger`, `fetch`, `batchSize`, `timeoutMs`.
    */
-  constructor({ url, model, cacheDir, logger, fetch: fetchImpl = globalThis.fetch, batchSize = 32, timeoutMs = 30000 }) {
+  constructor({ url, model, apiKey = '', cacheDir, logger, fetch: fetchImpl = globalThis.fetch, batchSize = 32, timeoutMs = 30000 }) {
     this.url = url
     this.model = model
+    this.apiKey = apiKey
     this.file = cacheDir ? join(cacheDir, 'embeddings.json') : undefined
     this.logger = logger
     this.fetch = fetchImpl
@@ -185,11 +186,36 @@ export class EmbeddingIndex {
     return this.vectors.get(this.keyOf(text))
   }
 
+  /**
+   * Point at a new server or model. A model change drops the in-memory
+   * vectors and loads that model's cached ones.
+   * @param options - `url`, `model`, `apiKey`.
+   * @returns whether anything changed.
+   */
+  async reconfigure({ url, model, apiKey = '' }) {
+    if (url === this.url && model === this.model && apiKey === this.apiKey) return false
+    const modelChanged = model !== this.model
+    if (modelChanged) {
+      await this.save.flush()
+      this.vectors = new Map()
+      this.loaded = false
+    }
+    this.url = url
+    this.model = model
+    this.apiKey = apiKey
+    this.failures = 0
+    this.lastError = undefined
+    if (modelChanged) await this.load()
+    return true
+  }
+
   async embed(inputs, signal) {
+    const headers = { 'content-type': 'application/json' }
+    if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`
     const response = await withTimeout(
       this.fetch(new URL('/api/embed', this.url).toString(), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ model: this.model, input: inputs }),
         signal,
       }),

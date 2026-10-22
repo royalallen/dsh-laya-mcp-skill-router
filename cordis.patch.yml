@@ -1,15 +1,17 @@
 # dsh-dynamic-router - the Cordis row.
 #
-# Every value has a default in config.js; anything set here or in your own
-# profile patch overrides it. Override in your profile cordis.patch.yml with an
-# id-targeted entry (`id: dynamic-router`) so upgrades keep your settings.
+# Every value has a default in config.js. Change settings on the plugin's page
+# in DeepSeek Harness (Settings > Plugins > dsh-dynamic-router > the component
+# row); edits are saved to your profile cordis.patch.yml and apply live.
 - insert:
     - id: dynamic-router
       name: 'dsh-dynamic-router'
       config:
         # laya | embeddings | bm25. `laya` uses the dsh-laya service when it is
-        # mounted and falls back to embeddings + BM25 recall when it is not.
+        # mounted, else the sidecar at layaUrl, and falls back to embeddings +
+        # BM25 recall when neither answers.
         selector: laya
+        layaUrl: 'http://127.0.0.1:8787'
 
         # Tools never filtered. Names differ between profiles; extend as needed.
         coreTools: [bash, pwsh, read, write, edit, glob, grep, skill, request_more]
@@ -19,19 +21,23 @@
         maxToolsPerGroup: 5
         maxSkills: 8
 
-        # Local embeddings for recall. Loopback Ollama; pull the model once with
+        # Embeddings for recall from an Ollama server; pull the model once with
         # `ollama pull nomic-embed-text`. Leave embeddingsUrl '' to use BM25 only.
+        # embeddingsApiKey is sent as a Bearer token; set it in the settings
+        # page, which stores it as a secret.
         embeddingsUrl: 'http://127.0.0.1:11434'
         embeddingModel: nomic-embed-text
 
         # Background description optimizer. Runs only when no agent turn is
-        # active, through the harness's own LLM providers. Leave provider and
-        # model empty to use the model your conversations use, or pick a
-        # provider id and model from DeepSeek Harness settings. Cards are
-        # written to ~/.dsh/storages/dsh-dynamic-router/cards.json; SKILL.md
-        # files are not edited unless writeBack is true.
+        # active. With baseUrl set it calls that OpenAI-compatible endpoint
+        # (e.g. http://127.0.0.1:11434/v1 for Ollama) with model and apiKey.
+        # With baseUrl empty it uses a DeepSeek Harness provider (provider +
+        # model), or the model your conversations use when both are empty.
+        # Cards are written to ~/.dsh/storages/dsh-dynamic-router/cards.json;
+        # SKILL.md files are not edited unless writeBack is true.
         optimizer:
           enabled: true
+          baseUrl: ''
           provider: ''
           model: ''
           writeBack: false

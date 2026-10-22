@@ -1,8 +1,10 @@
 /**
  * Router configuration: defaults, validation, and the `Config` schema Cordis
  * validates before `apply()` runs. Inside the harness `Config` is a
- * schemastery schema, which is what the settings GUI renders; outside it
- * (tests, the eval script) a Standard Schema validator stands in.
+ * schemastery schema; the plugin page in Settings shows a form for its
+ * `.volatile()` fields, and edits reach the running plugin as
+ * `loader/volatile-update`. Outside the harness (tests, the eval script) a
+ * Standard Schema validator stands in.
  */
 
 import { homedir } from 'node:os'
@@ -12,6 +14,8 @@ const dshHome = () => process.env.DSH_HOME || join(homedir(), '.dsh')
 
 export const DEFAULT_OPTIMIZER = Object.freeze({
   enabled: true,
+  baseUrl: '',
+  apiKey: '',
   provider: '',
   model: '',
   concurrency: 1,
@@ -45,6 +49,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   historyTurns: 2,
   selectorTimeoutMs: 5000,
   layaBatchSize: 16,
+  layaUrl: 'http://127.0.0.1:8787',
 
   alwaysSkills: [],
   companions: {},
@@ -58,6 +63,7 @@ export const DEFAULT_CONFIG = Object.freeze({
 
   embeddingsUrl: 'http://127.0.0.1:11434',
   embeddingModel: 'nomic-embed-text',
+  embeddingsApiKey: '',
 
   apply: true,
   logLevel: 'info',
@@ -79,6 +85,36 @@ const STRING_ARRAYS = ['coreTools', 'alwaysInclude', 'alwaysSkills']
 
 const issue = (message, path) => ({ issues: [{ message, path }] })
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+
+/**
+ * Check an optional http(s) URL field.
+ * @returns an issue, or undefined when the value is empty or valid.
+ */
+const urlIssue = (value, name, path) => {
+  if (typeof value !== 'string') return issue(`${name} must be a string`, path)
+  if (value === '') return undefined
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return issue(`${name} must be an http(s) URL`, path)
+  } catch {
+    return issue(`${name} is not a valid URL`, path)
+  }
+  return undefined
+}
+
+/**
+ * Replace volatile references (`{ get() }`) with their current values.
+ * @param value - config as Cordis passed it.
+ * @returns plain data.
+ */
+export function unwrapConfig(value) {
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function' && !Array.isArray(value)) {
+    return unwrapConfig(value.get())
+  }
+  if (Array.isArray(value)) return value.map(unwrapConfig)
+  if (isPlainObject(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, unwrapConfig(child)]))
+  return value
+}
 
 /**
  * Merge user config over defaults and check every field.
@@ -142,38 +178,45 @@ export function validateConfig(value) {
       return issue(`skillCategories.${category} must be an array of skill names`, ['skillCategories', category])
     }
   }
-  if (typeof config.embeddingsUrl !== 'string') return issue('embeddingsUrl must be a string', ['embeddingsUrl'])
-  if (config.embeddingsUrl !== '') {
-    try {
-      const parsed = new URL(config.embeddingsUrl)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return issue('embeddingsUrl must be an http(s) URL', ['embeddingsUrl'])
-      }
-    } catch {
-      return issue('embeddingsUrl is not a valid URL', ['embeddingsUrl'])
-    }
-  }
+  const urls = urlIssue(config.embeddingsUrl, 'embeddingsUrl', ['embeddingsUrl']) ?? urlIssue(config.layaUrl, 'layaUrl', ['layaUrl'])
+  if (urls) return urls
   if (typeof config.embeddingModel !== 'string' || config.embeddingModel === '') {
     return issue('embeddingModel must be a non-empty string', ['embeddingModel'])
   }
+  if (typeof config.embeddingsApiKey !== 'string') return issue('embeddingsApiKey must be a string', ['embeddingsApiKey'])
   if (typeof config.apply !== 'boolean') return issue('apply must be a boolean', ['apply'])
 
   const optimizer = config.optimizer
   for (const key of ['enabled', 'writeBack', 'rewriteToolDescriptions']) {
     if (typeof optimizer[key] !== 'boolean') return issue(`optimizer.${key} must be a boolean`, ['optimizer', key])
   }
-  for (const key of ['provider', 'model']) {
+  for (const key of ['apiKey', 'provider', 'model']) {
     if (typeof optimizer[key] !== 'string') return issue(`optimizer.${key} must be a string`, ['optimizer', key])
   }
-  if ((optimizer.provider === '') !== (optimizer.model === '')) {
-    return issue('optimizer.provider and optimizer.model must be set together, or both left empty', ['optimizer', 'provider'])
-  }
+  const baseUrl = urlIssue(optimizer.baseUrl, 'optimizer.baseUrl', ['optimizer', 'baseUrl'])
+  if (baseUrl) return baseUrl
   for (const key of ['concurrency', 'maxTokens']) {
     if (!Number.isInteger(optimizer[key]) || optimizer[key] <= 0) {
       return issue(`optimizer.${key} must be a positive integer`, ['optimizer', key])
     }
   }
   return { value: config }
+}
+
+/**
+ * Half-finished settings that are allowed (a settings form saves one field at
+ * a time) but leave a feature off until completed.
+ * @param config - resolved config.
+ * @returns warning messages.
+ */
+export function configWarnings(config) {
+  const { baseUrl, provider, model } = config.optimizer
+  if (!config.optimizer.enabled) return []
+  if (baseUrl && !model) return ['optimizer base URL is set but model is empty; the optimizer waits until a model is set']
+  if (!baseUrl && Boolean(provider) !== Boolean(model)) {
+    return ['optimizer provider and model must be set together; using the conversation model until both are set']
+  }
+  return []
 }
 
 let z
@@ -187,7 +230,9 @@ const strings = (value, text) => z.array(z.string()).default([...value]).descrip
 
 /**
  * The settings-GUI schema. Field defaults mirror DEFAULT_CONFIG; `apply()`
- * runs the result through `resolveConfig` for the cross-field checks.
+ * runs the result through `resolveConfig`. Every field but `cacheDir` is
+ * volatile, so it appears in the plugin's settings form and applies without
+ * a restart.
  * @returns a schemastery object schema.
  */
 function buildSchema() {
@@ -195,9 +240,28 @@ function buildSchema() {
   const o = DEFAULT_OPTIMIZER
   const int = (value, min, text) => z.number().step(1).min(min).default(value).description(text)
   const prob = (value, text) => z.number().min(0).max(1).step(0.01).default(value).description(text)
-  return z.object({
+  const fields = {
+    embeddingsUrl: z.string().default(d.embeddingsUrl)
+      .description('Ollama server for embeddings, e.g. http://127.0.0.1:11434. Leave empty to use keyword matching only.'),
+    embeddingModel: z.string().default(d.embeddingModel).description('Embedding model on that server. Pull it once with `ollama pull <model>`.'),
+    embeddingsApiKey: z.string().role('secret').default('').description('API key for the embeddings server, sent as a Bearer token. Leave empty for a local Ollama.'),
+    optimizer: z.object({
+      enabled: z.boolean().default(o.enabled).description('Rewrite skill and tool descriptions for routing while no conversation is running.'),
+      baseUrl: z.string().default(o.baseUrl)
+        .description('OpenAI-compatible endpoint for the optimizer, e.g. http://127.0.0.1:11434/v1 for Ollama. Leave empty to use a DeepSeek Harness provider.'),
+      apiKey: z.string().role('secret').default('').description('API key for that endpoint, sent as a Bearer token. Leave empty for a local Ollama.'),
+      model: z.string().default(o.model).description('Model id. Required with a base URL; with a provider, set both or neither.'),
+      provider: z.string().default(o.provider)
+        .description('Used when base URL is empty: a provider id from Settings > Models. Leave provider and model empty to use the model your conversations use.'),
+      maxTokens: int(o.maxTokens, 1, 'Output token limit per description.'),
+      concurrency: int(o.concurrency, 1, 'Descriptions written at a time.'),
+      writeBack: z.boolean().default(o.writeBack).description('Also write improved descriptions into SKILL.md files (a backup is kept).'),
+      rewriteToolDescriptions: z.boolean().default(o.rewriteToolDescriptions).description('Send optimized descriptions to the model in place of the originals.'),
+    }).default({ ...o }).description('Background description optimizer.'),
     selector: z.union(['laya', 'embeddings', 'bm25']).default(d.selector)
-      .description('How skills and tool groups are judged. laya uses the dsh-laya service when mounted and falls back to recall.'),
+      .description('How skills and tool groups are judged. laya uses the dsh-laya plugin, or the sidecar at the Laya URL, and falls back to recall.'),
+    layaUrl: z.string().default(d.layaUrl)
+      .description('Laya sidecar (`laya-mcp serve`) used when the dsh-laya plugin is not installed. Leave empty to use dsh-laya only.'),
     coreTools: strings(d.coreTools, 'Tools that are always sent. Names or * patterns.'),
     alwaysInclude: strings(d.alwaysInclude, 'Extra tools that are always sent. Names or * patterns.'),
     groups: z.array(z.object({
@@ -227,20 +291,12 @@ function buildSchema() {
     minChange: int(d.minChange, 0, 'Fewest tool removals worth changing the tool list (keeps the prompt cache warm).'),
     maxEscalations: int(d.maxEscalations, 0, 'request_more calls allowed per turn.'),
     reindexDebounceMs: int(d.reindexDebounceMs, 0, 'Quiet period before re-indexing after the catalog changes.'),
-    embeddingsUrl: z.string().default(d.embeddingsUrl).description('Ollama URL for local embeddings. Leave empty to use keyword matching only.'),
-    embeddingModel: z.string().default(d.embeddingModel).description('Ollama embedding model. Pull it once with `ollama pull <model>`.'),
-    cacheDir: z.string().default('').description('Storage folder. Empty uses ~/.dsh/storages/dsh-dynamic-router.'),
-    optimizer: z.object({
-      enabled: z.boolean().default(o.enabled).description('Rewrite skill and tool descriptions for routing while no conversation is running.'),
-      provider: z.string().default(o.provider).description('LLM provider id as configured in DeepSeek Harness. Leave empty to use the model your conversations use.'),
-      model: z.string().default(o.model).description('Model id for that provider. Set together with provider.'),
-      maxTokens: int(o.maxTokens, 1, 'Output token limit per description.'),
-      concurrency: int(o.concurrency, 1, 'Descriptions written at a time.'),
-      writeBack: z.boolean().default(o.writeBack).description('Also write improved descriptions into SKILL.md files (a backup is kept).'),
-      rewriteToolDescriptions: z.boolean().default(o.rewriteToolDescriptions).description('Send optimized descriptions to the model in place of the originals.'),
-    }).default({ ...o }).description('Background description optimizer.'),
     apply: z.boolean().default(d.apply).description('Off = dry run: log what would be selected but send everything.'),
     logLevel: z.union(['silent', 'warn', 'info', 'debug']).default(d.logLevel).description('Log detail.'),
+  }
+  return z.object({
+    ...Object.fromEntries(Object.entries(fields).map(([key, schema]) => [key, schema.volatile()])),
+    cacheDir: z.string().default('').description('Storage folder. Empty uses ~/.dsh/storages/dsh-dynamic-router. Changing it restarts the plugin.'),
   })
 }
 

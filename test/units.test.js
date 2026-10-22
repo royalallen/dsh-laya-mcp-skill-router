@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { validateConfig, resolveConfig } from '../config.js'
-import { Bm25, rankItems, reciprocalRankFusion, tokenize } from '../recall.js'
-import { askAll, buildState, questionFor, unionMerge } from '../laya.js'
+import { configWarnings, validateConfig, resolveConfig, unwrapConfig } from '../config.js'
+import { Bm25, EmbeddingIndex, rankItems, reciprocalRankFusion, tokenize } from '../recall.js'
+import { askAll, buildState, questionFor, sidecarClient, unionMerge } from '../laya.js'
 import { stickySet, filterAssembly, toolsForGroups } from '../filter.js'
 import { buildToolCatalog, partitionTools } from '../catalog.js'
 import { chooseAutoLoad, chooseSkills, renderDirectory, renderHint } from '../skills.js'
-import { extractJson, validateCard } from '../optimize.js'
+import { Optimizer, chatCompletion, extractJson, validateCard } from '../optimize.js'
 import { fakeLaya, tool } from './helpers.js'
 
 test('config: defaults merge and bad values are rejected', () => {
@@ -14,11 +14,83 @@ test('config: defaults merge and bad values are rejected', () => {
   assert.equal(config.maxTools, 7)
   assert.equal(config.optimizer.maxTokens, 900)
   assert.equal(config.optimizer.provider, '')
-  assert.ok(validateConfig({ optimizer: { provider: 'p' } }).issues)
   assert.ok(validateConfig({ selector: 'nope' }).issues)
   assert.ok(validateConfig({ skillKeep: 2 }).issues)
   assert.ok(validateConfig({ groups: [{ id: 'g' }] }).issues)
   assert.ok(validateConfig({ embeddingsUrl: 'ftp://x' }).issues)
+  assert.ok(validateConfig({ layaUrl: 'not a url' }).issues)
+  assert.ok(validateConfig({ optimizer: { baseUrl: 'ftp://x' } }).issues)
+})
+
+test('config: half-finished optimizer settings warn instead of failing', () => {
+  assert.equal(configWarnings(resolveConfig({ optimizer: { provider: 'p' } })).length, 1)
+  assert.equal(configWarnings(resolveConfig({ optimizer: { baseUrl: 'http://h:11434/v1' } })).length, 1)
+  assert.deepEqual(configWarnings(resolveConfig({ optimizer: { baseUrl: 'http://h:11434/v1', model: 'm' } })), [])
+})
+
+test('config: volatile references are unwrapped', () => {
+  const ref = (value) => ({ get: () => value })
+  const plain = unwrapConfig({ maxTools: ref(5), optimizer: ref({ model: 'm' }), coreTools: ['a'], cacheDir: '' })
+  assert.deepEqual(plain, { maxTools: 5, optimizer: { model: 'm' }, coreTools: ['a'], cacheDir: '' })
+})
+
+test('optimizer: base URL routes to an OpenAI-compatible endpoint with the API key', async () => {
+  const calls = []
+  const fetch = async (url, init) => {
+    calls.push({ url, init })
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'hi' } }] }) }
+  }
+  const text = await chatCompletion({ baseUrl: 'http://h:11434/v1/', apiKey: 'k', model: 'm', system: 's', prompt: 'p', maxTokens: 9, fetch })
+  assert.equal(text, 'hi')
+  assert.equal(calls[0].url, 'http://h:11434/v1/chat/completions')
+  assert.equal(calls[0].init.headers.authorization, 'Bearer k')
+  assert.equal(JSON.parse(calls[0].init.body).model, 'm')
+
+  const optimizer = new Optimizer({ config: resolveConfig({ optimizer: { baseUrl: 'http://h/v1', model: 'm' } }), store: { map: new Map() } })
+  assert.equal(optimizer.route().baseUrl, 'http://h/v1')
+  const waiting = new Optimizer({ config: resolveConfig({ optimizer: { baseUrl: 'http://h/v1' } }), store: { map: new Map() } })
+  assert.equal(waiting.route(), undefined)
+})
+
+test('laya sidecar client posts to /ask and backs off after a refused connection', async () => {
+  let now = 0
+  let calls = 0
+  const ok = sidecarClient('http://127.0.0.1:8787', {
+    fetch: async (url, init) => {
+      calls += 1
+      assert.equal(url, 'http://127.0.0.1:8787/ask')
+      assert.deepEqual(JSON.parse(init.body), { state: {}, questions: {} })
+      return { ok: true, status: 200, json: async () => ({ answers: { q0: { noul: 0.9 } } }) }
+    },
+  })
+  assert.equal((await ok.ask({ state: {}, questions: {} })).answers.q0.noul, 0.9)
+
+  calls = 0
+  const down = sidecarClient('http://127.0.0.1:8787', {
+    now: () => now,
+    retryMs: 1000,
+    fetch: async () => {
+      calls += 1
+      throw new Error('ECONNREFUSED')
+    },
+  })
+  await assert.rejects(down.ask({}), /laya-mcp serve/)
+  await assert.rejects(down.ask({}), /laya-mcp serve/)
+  assert.equal(calls, 1)
+  now = 1001
+  await assert.rejects(down.ask({}))
+  assert.equal(calls, 2)
+})
+
+test('embeddings reconfigure switches model and clears failures', async () => {
+  const index = new EmbeddingIndex({ url: 'http://a', model: 'm1', logger: {} })
+  index.vectors.set('x', [1])
+  index.failures = 5
+  assert.equal(await index.reconfigure({ url: 'http://a', model: 'm1' }), false)
+  assert.equal(await index.reconfigure({ url: 'http://b', model: 'm2', apiKey: 'k' }), true)
+  assert.equal(index.vectors.size, 0)
+  assert.equal(index.failures, 0)
+  assert.equal(index.apiKey, 'k')
 })
 
 test('tokenize splits snake and camel case and strips plurals', () => {

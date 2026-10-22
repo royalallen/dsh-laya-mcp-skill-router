@@ -1,7 +1,8 @@
 /**
  * Laya precision pass. One `noul` per skill and per group, each with explicit
  * `criteria` text for true and false (Laya is near chance without it), sent in
- * batches through the `ctx.laya` service published by dsh-laya.
+ * batches through the `ctx.laya` service published by dsh-laya, or straight to
+ * a `laya-mcp serve` sidecar when dsh-laya is not installed.
  */
 
 import { shortDescription } from './catalog.js'
@@ -58,6 +59,49 @@ export function questionFor(item) {
     type: 'noul',
     instructions: `Does this request need the tool set "${item.label ?? item.id}"? ${shortDescription(item, 300)}`,
     criteria: { true: GROUP_TRUE, false: falseText(GROUP_FALSE, item) },
+  }
+}
+
+/**
+ * A minimal stand-in for `ctx.laya` that posts to the sidecar's `/ask`.
+ * After a failed connection it fails fast for `retryMs`: on Windows a refused
+ * loopback connection takes about two seconds, which every step would pay.
+ * @param url - sidecar base URL, e.g. `http://127.0.0.1:8787`.
+ * @param options - optional `fetch`, `retryMs`, `now`.
+ * @returns `{ ask(body, { signal }) }` resolving to the sidecar payload.
+ */
+export function sidecarClient(url, { fetch: fetchImpl = globalThis.fetch, retryMs = 60000, now = Date.now } = {}) {
+  let downUntil = 0
+  let lastError = ''
+  return {
+    url,
+    async ask(body, { signal } = {}) {
+      if (now() < downUntil) throw new Error(lastError)
+      let response
+      try {
+        response = await fetchImpl(new URL('/ask', url).toString(), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+          signal,
+        })
+      } catch (error) {
+        if (signal?.aborted) throw error
+        downUntil = now() + retryMs
+        lastError = `cannot reach the Laya sidecar at ${url} (${error?.message ?? error}); start it with \`laya-mcp serve\``
+        throw new Error(lastError)
+      }
+      let payload
+      try {
+        payload = await response.json()
+      } catch {
+        throw new Error(`the Laya sidecar at ${url} returned a non-JSON body (HTTP ${response.status})`)
+      }
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.message ?? `the Laya sidecar at ${url} returned HTTP ${response.status}`)
+      }
+      return payload
+    },
   }
 }
 
