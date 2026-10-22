@@ -9,7 +9,7 @@ dsh plugin --profile desktop add github:royalallen/dsh-dynamic-router
 ## How it works
 
 1. **Recall.** Local Ollama embeddings (`nomic-embed-text` on `http://127.0.0.1:11434`) plus BM25 rank tool groups, tools and skills against the current request, the previous request and recently used tools. The two rankings are fused by reciprocal rank. With no embeddings the router uses BM25 alone.
-2. **Laya.** One batched yes/no question per skill (all of them) and per top tool group goes to the local Laya sidecar, through the `dsh-laya` plugin when it is installed or straight to `layaUrl` (default `http://127.0.0.1:8787`) when it is not. Every question carries explicit true/false criteria.
+2. **Laya.** One batched yes/no question per skill (all of them) and per top tool group goes to a Laya sidecar: the one at `layaUrl` when you give one, otherwise the one the `dsh-laya` plugin is configured for. Every question carries explicit true/false criteria.
 3. **Union merge.** An item is kept when Laya says yes, or when it is in the recall top N with real signal. Laya can add what recall missed. It cannot drop the recall floor, so a skill you need is not lost to one bad probability.
 4. **Tools.** Core tools (`bash`, `pwsh`, `read`, `write`, `edit`, `glob`, `grep`, `skill`, `request_more`) always go out. Routable tools are grouped (config groups, then `mcp__<server>__*`, then optimizer groups, then shared name prefix), and only selected groups go out, within `maxTools` and `maxToolsPerGroup`. Tools called in the last `stickyTurns` turns stay. Small removals are skipped so the cached prompt prefix survives. A call to a hidden tool is denied with a message telling the model how to load it.
 5. **Skills.** The harness's full `<available_skills>` catalog is replaced with a names-only directory grouped by category. That directory is stable and cache-friendly. Each step's runtime context gets a short "Suggested skills" list with descriptions. Skills where Laya (≥ `autoLoadThreshold`) and recall agree are loaded up front, at most `maxAutoLoad` per turn.
@@ -38,7 +38,7 @@ Saved settings override the Cordis config. Everything else can be set in your pr
 | `embeddingsUrl` / `embeddingModel` / `embeddingsApiKey` | `http://127.0.0.1:11434` / `nomic-embed-text` / empty | Ollama server for recall embeddings |
 | `optimizer.baseUrl` / `optimizer.apiKey` / `optimizer.model` | empty | OpenAI-compatible endpoint for the optimizer |
 | `optimizer.provider` | empty | Harness provider id, used when `baseUrl` is empty; empty provider and model use the conversation model |
-| `layaUrl` | `http://127.0.0.1:8787` | Laya sidecar used when `dsh-laya` is not installed; empty disables it |
+| `layaUrl` | empty | `laya-mcp serve` sidecar to use instead of `dsh-laya`; empty uses `dsh-laya` and its settings |
 | `selector` | `laya` | `laya`, `embeddings`, or `bm25` |
 | `maxTools` / `maxToolsPerGroup` | 12 / 5 | Routable tool budget per request |
 | `maxSkills` | 8 | Suggested skills per step (plus `alwaysSkills`) |
@@ -61,7 +61,7 @@ npm run eval      # skill recall against your live catalog and Laya (see eval/)
 
 - **The model never asked for settings**: it only asks while `settings.json` is missing. Delete it to start setup again, or ask the model to call `router_configure`.
 - **"embeddings unavailable"**: start Ollama at the embeddings URL and run `ollama pull nomic-embed-text`. To use BM25 only and silence the warning, clear the embeddings URL.
-- **"neither dsh-laya nor a Laya URL is available"** or `router_preview` shows "cannot reach the Laya sidecar": start the sidecar with `laya-mcp serve` (or install `dsh-laya` with `lifecycle: spawn`), point `layaUrl` at it, or set `selector: embeddings`. After a refused connection the router retries the sidecar once a minute.
+- **Laya test fails, or "neither a Laya URL nor the dsh-laya plugin is available"**: install `dsh-laya` and run its sidecar (`pip install "laya-mcp[mcp]"`, then `laya-mcp serve`, or set dsh-laya `lifecycle: spawn`), or give the router the URL of a running `laya-mcp serve`. A server that answers `/health` but not `/ask` is not a Laya sidecar. To stop using Laya, set `selector: embeddings`. After a refused connection the router retries the sidecar once a minute.
 - **The model says a tool is missing**: run `router_preview` with the request to see why. Add the tool to `alwaysInclude`, or lower `groupKeep`.
 - **A skill was not suggested**: `router_stats` lists skills the model loaded without a suggestion. Add the skill to `alwaysSkills` or `companions`, or let the optimizer write a card for it.
 - **Optimizer calls fail**: ask the model to reconfigure the tool router with a working base URL (it must include `/v1` for Ollama), API key and model, or a harness provider and model that work in a normal conversation. To stop the job, have it turn the optimizer off.

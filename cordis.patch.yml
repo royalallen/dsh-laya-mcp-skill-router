@@ -9,11 +9,11 @@
     - id: dynamic-router
       name: 'dsh-dynamic-router'
       config:
-        # laya | embeddings | bm25. `laya` uses the dsh-laya service when it is
-        # mounted, else the sidecar at layaUrl, and falls back to embeddings +
-        # BM25 recall when neither answers.
+        # laya | embeddings | bm25. `laya` asks the sidecar at layaUrl when one
+        # is set, otherwise the dsh-laya plugin with its own settings, and falls
+        # back to embeddings + BM25 recall when neither answers.
         selector: laya
-        layaUrl: 'http://127.0.0.1:8787'
+        layaUrl: ''
 
         # Tools never filtered. Names differ between profiles; extend as needed.
         coreTools: [bash, pwsh, read, write, edit, glob, grep, skill, request_more]

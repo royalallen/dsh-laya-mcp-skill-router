@@ -1,6 +1,6 @@
 {
   "name": "dsh-dynamic-router",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Per-turn tool and skill router for DeepSeek Harness: local embeddings/BM25 recall plus Laya decisions pick which tools and skills reach the model, so a remote Ollama gets a small, cache-stable context.",
   "keywords": [
     "dsh-plugin",

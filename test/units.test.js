@@ -7,7 +7,7 @@ import { stickySet, filterAssembly, toolsForGroups } from '../filter.js'
 import { buildToolCatalog, partitionTools } from '../catalog.js'
 import { chooseAutoLoad, chooseSkills, renderDirectory, renderHint } from '../skills.js'
 import { Optimizer, chatCompletion, extractJson, validateCard } from '../optimize.js'
-import { checkSettings, describeSettings, mergeSettings, settingsFromArgs } from '../settings.js'
+import { checkSettings, describeSettings, mergeSettings, settingsFromArgs, setupPrompt, testSettings } from '../settings.js'
 import { fakeLaya, tool } from './helpers.js'
 
 test('config: defaults merge and bad values are rejected', () => {
@@ -96,6 +96,35 @@ test('setup: saved settings layer over config and keep earlier values', () => {
   assert.equal(merged.configuredAt, undefined)
   assert.ok(checkSettings({}, { embeddingsUrl: 'nope' }).error)
   assert.match(describeSettings(checkSettings({}, second).config), /m at http:\/\/h:11434\/v1/)
+})
+
+test('setup: connection tests report each service and recommend dsh-laya when Laya is missing', async () => {
+  const fetch = async (url) => {
+    if (url.endsWith('/api/embed')) return { ok: true, json: async () => ({ embeddings: [[0.1, 0.2, 0.3]] }) }
+    if (url.endsWith('/chat/completions')) return { ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) }
+    throw new Error('ECONNREFUSED')
+  }
+  const config = resolveConfig({ optimizer: { baseUrl: 'http://h/v1', model: 'm' } })
+  const { lines, layaOk } = await testSettings(config, { fetch })
+  assert.match(lines[0], /^Embeddings: OK.*3-dimension/)
+  assert.match(lines[1], /^Optimizer: FAILED.*bad key/)
+  assert.match(lines[2], /^Laya: no Laya URL/)
+  assert.match(lines[3], /install the dsh-laya plugin/)
+  assert.equal(layaOk, false)
+
+  const off = { embeddingsUrl: '', optimizer: { enabled: false } }
+  const plugin = { ask: async () => ({ answers: { q0: { noul: 0.9 } } }), sidecarUrl: 'http://x:8787' }
+  const viaPlugin = await testSettings(resolveConfig(off), { fetch, laya: plugin })
+  assert.equal(viaPlugin.layaOk, true)
+  assert.match(viaPlugin.lines[2], /dsh-laya plugin's sidecar at http:\/\/x:8787/)
+  assert.equal(viaPlugin.lines.length, 3)
+
+  const notLaya = async () => ({ ok: false, status: 404, json: async () => ({}) })
+  const wrongServer = await testSettings(resolveConfig({ ...off, layaUrl: 'http://gw:32091' }), { fetch: notLaya, laya: plugin })
+  assert.match(wrongServer.lines[2], /^Laya: FAILED, the sidecar at http:\/\/gw:32091/)
+  assert.match(wrongServer.lines[3], /clear the Laya URL/)
+  assert.match(setupPrompt({ hasLayaPlugin: false }), /dsh-laya/)
+  assert.doesNotMatch(setupPrompt({ hasLayaPlugin: true }), /pip install/)
 })
 
 test('setup: router_configure is core only while setup is pending', () => {

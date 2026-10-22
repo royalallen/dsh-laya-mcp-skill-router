@@ -14,7 +14,7 @@ import { sidecarClient } from './laya.js'
 import { EmbeddingIndex } from './recall.js'
 import { CardStore, Optimizer } from './optimize.js'
 import { HINT_CONTEXT, Router } from './router.js'
-import { SETUP_CONTEXT, SETUP_PROMPT, SettingsStore, mergeSettings } from './settings.js'
+import { SETUP_CONTEXT, SettingsStore, mergeSettings, setupPrompt } from './settings.js'
 import { configureTool, routerTools } from './tools.js'
 
 export const name = 'dynamic-router'
@@ -56,7 +56,7 @@ const describe = (config, ctx) => {
       : optimizer.provider && optimizer.model ? `${optimizer.provider}/${optimizer.model}` : 'conversation model'
   const laya = config.selector !== 'laya'
     ? 'off'
-    : optional(ctx, 'laya') ? 'dsh-laya' : config.layaUrl ? `sidecar @ ${config.layaUrl}` : 'not available'
+    : config.layaUrl ? `sidecar @ ${config.layaUrl}` : optional(ctx, 'laya') ? 'dsh-laya' : 'not available'
   return (
     `selector=${config.selector} · laya=${laya} · ` +
     `embeddings=${config.embeddingsUrl ? `${config.embeddingModel} @ ${config.embeddingsUrl}` : 'off'} · ` +
@@ -82,7 +82,7 @@ export function apply(ctx, rawConfig) {
     tools: ctx.tools,
     skills: optional(ctx, 'skills'),
     workingDirectory: optional(ctx, 'workingDirectory'),
-    laya: config.selector === 'laya' ? optional(ctx, 'laya') ?? sidecar : undefined,
+    laya: config.selector === 'laya' ? sidecar ?? optional(ctx, 'laya') : undefined,
   })
   const router = new Router({ config, logger, cards, embeddings, services })
   const optimizer = new Optimizer({
@@ -140,7 +140,11 @@ export function apply(ctx, rawConfig) {
 
   ctx.effect(() => ctx.tools.guard((exec) => router.guard(exec)))
   for (const definition of routerTools(router)) ctx.effect(() => ctx.tools.register(definition))
-  ctx.effect(() => ctx.tools.register(configureTool({ settings, base: () => unwrapConfig(rawConfig), reapply, config })))
+  ctx.effect(() =>
+    ctx.tools.register(
+      configureTool({ settings, base: () => unwrapConfig(rawConfig), reapply, config, laya: () => optional(ctx, 'laya') }),
+    ),
+  )
   ctx.effect(() =>
     ctx.systemPrompt.context({
       name: HINT_CONTEXT,
@@ -156,7 +160,7 @@ export function apply(ctx, rawConfig) {
       order: HINT_ORDER + 1,
       required: true,
       interpolate: false,
-      text: () => (config.setupPending ? SETUP_PROMPT : ''),
+      text: () => (config.setupPending ? setupPrompt({ hasLayaPlugin: Boolean(optional(ctx, 'laya')) }) : ''),
     }),
   )
 
@@ -177,8 +181,8 @@ export function apply(ctx, rawConfig) {
         for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
         if (config.selector === 'laya' && !optional(ctx, 'laya') && !config.layaUrl) {
           logger.warn(
-            '[dynamic-router] selector is "laya" but neither dsh-laya nor a Laya URL is available, so routing uses recall only. ' +
-              'Install dsh-laya, set the Laya URL to a running `laya-mcp serve`, or set selector to embeddings to silence this.',
+            '[dynamic-router] selector is "laya" but neither a Laya URL nor the dsh-laya plugin is available, so routing uses recall only. ' +
+              'Install dsh-laya, give the router the URL of a running `laya-mcp serve`, or set selector to embeddings to silence this.',
           )
         }
       })

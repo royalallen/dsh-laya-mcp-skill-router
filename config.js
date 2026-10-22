@@ -48,7 +48,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   historyTurns: 2,
   selectorTimeoutMs: 5000,
   layaBatchSize: 16,
-  layaUrl: 'http://127.0.0.1:8787',
+  layaUrl: '',
 
   alwaysSkills: [],
   companions: {},
@@ -257,9 +257,9 @@ function buildSchema() {
       rewriteToolDescriptions: z.boolean().default(o.rewriteToolDescriptions).description('Send optimized descriptions to the model in place of the originals.'),
     }).default({ ...o }).description('Background description optimizer.'),
     selector: z.union(['laya', 'embeddings', 'bm25']).default(d.selector)
-      .description('How skills and tool groups are judged. laya uses the dsh-laya plugin, or the sidecar at the Laya URL, and falls back to recall.'),
+      .description('How skills and tool groups are judged. laya uses the sidecar at the Laya URL, or the dsh-laya plugin, and falls back to recall.'),
     layaUrl: z.string().default(d.layaUrl)
-      .description('Laya sidecar (`laya-mcp serve`) used when the dsh-laya plugin is not installed. Leave empty to use dsh-laya only.'),
+      .description('Laya sidecar (`laya-mcp serve`) to use instead of the dsh-laya plugin. Leave empty to use dsh-laya and its settings.'),
     coreTools: strings(d.coreTools, 'Tools that are always sent. Names or * patterns.'),
     alwaysInclude: strings(d.alwaysInclude, 'Extra tools that are always sent. Names or * patterns.'),
     groups: z.array(z.object({

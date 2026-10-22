@@ -11,6 +11,7 @@ import {
   checkSettings,
   describeSettings,
   settingsFromArgs,
+  testSettings,
 } from './settings.js'
 
 let hostDefineTool
@@ -155,19 +156,24 @@ export function routerTools(router) {
 /**
  * `router_configure`: save settings the user gave in conversation.
  * @param options - `settings` (SettingsStore), `base()` returning the plain Cordis config,
- *   `reapply()` applying saved settings, and the live `config`.
+ *   `reapply()` applying saved settings, the live `config`, and `laya()` returning the dsh-laya service.
  * @returns the tool definition.
  */
-export function configureTool({ settings, base, reapply, config }) {
+export function configureTool({ settings, base, reapply, config, laya }) {
+  const report = async (headline) => {
+    const { lines } = await testSettings(config, { laya: laya?.() })
+    return { text: `${headline}\n${describeSettings(config)}\n\nConnection tests:\n${lines.join('\n')}` }
+  }
   return defineTool({
     name: SETUP_TOOL,
     description: SETUP_TOOL_DESCRIPTION,
     parameters: SETUP_TOOL_PARAMETERS,
     output: TEXT_OUTPUT,
     async execute(args) {
+      if (args?.testOnly === true) return report('Current router settings (nothing changed).')
       const given = Object.keys(args ?? {}).filter((key) => key !== 'useDefaults' && args[key] !== undefined)
       if (given.length === 0 && args?.useDefaults !== true) {
-        return { text: 'Nothing to save. Pass the settings the user gave, or useDefaults: true to accept the defaults.' }
+        return { text: 'Nothing to save. Pass the settings the user gave, useDefaults: true to accept the defaults, or testOnly: true to test.' }
       }
       const candidate = settingsFromArgs(args ?? {}, settings.value)
       const checked = checkSettings(base(), candidate)
@@ -178,7 +184,7 @@ export function configureTool({ settings, base, reapply, config }) {
         return { text: `Not saved: could not write ${settings.file} (${error?.message ?? error}).` }
       }
       reapply()
-      return { text: `Router settings saved to ${settings.file} and applied.\n${describeSettings(config)}` }
+      return report(`Router settings saved to ${settings.file} and applied.`)
     },
     presentCall() {
       return { card: 'generic', title: 'Configure tool router', kind: 'edit', rawInput: '' }
