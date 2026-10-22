@@ -1,13 +1,13 @@
-# dsh-dynamic-router - the Cordis row.
+# dsh-laya-mcp-skill-router - the Cordis row.
 #
 # Every value has a default in config.js. On first run the model asks for the
 # embeddings, optimizer and Laya settings and saves them to
-# ~/.dsh/storages/dsh-dynamic-router/settings.json, which overrides these
+# ~/.dsh/storages/dsh-laya-mcp-skill-router/settings.json, which overrides these
 # values. Override anything else in your profile cordis.patch.yml with an
-# id-targeted entry (`id: dynamic-router`); edits apply live.
+# id-targeted entry (`id: laya-mcp-skill-router`); edits apply live.
 - insert:
-    - id: dynamic-router
-      name: 'dsh-dynamic-router'
+    - id: laya-mcp-skill-router
+      name: 'dsh-laya-mcp-skill-router'
       config:
         # laya | embeddings | bm25. `laya` asks the sidecar at layaUrl when one
         # is set, otherwise the dsh-laya plugin with its own settings, and falls
@@ -35,7 +35,7 @@
         # (e.g. http://127.0.0.1:11434/v1 for Ollama) with model and apiKey.
         # With baseUrl empty it uses a DeepSeek Harness provider (provider +
         # model), or the model your conversations use when both are empty.
-        # Cards are written to ~/.dsh/storages/dsh-dynamic-router/cards.json;
+        # Cards are written to ~/.dsh/storages/dsh-laya-mcp-skill-router/cards.json;
         # SKILL.md files are not edited unless writeBack is true.
         optimizer:
           enabled: true

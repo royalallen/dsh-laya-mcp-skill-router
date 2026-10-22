@@ -134,7 +134,7 @@ export function validateConfig(value) {
     ...input,
     optimizer: { ...DEFAULT_OPTIMIZER, ...(isPlainObject(input.optimizer) ? input.optimizer : {}) },
   }
-  if (!config.cacheDir) config.cacheDir = join(dshHome(), 'storages', 'dsh-dynamic-router')
+  if (!config.cacheDir) config.cacheDir = join(dshHome(), 'storages', 'dsh-laya-mcp-skill-router')
 
   if (!SELECTORS.includes(config.selector)) {
     return issue(`selector must be one of ${SELECTORS.join(', ')}`, ['selector'])
@@ -303,13 +303,13 @@ function buildSchema() {
   }
   return z.object({
     ...Object.fromEntries(Object.entries(fields).map(([key, schema]) => [key, schema.volatile()])),
-    cacheDir: z.string().default('').description('Storage folder. Empty uses ~/.dsh/storages/dsh-dynamic-router. Changing it restarts the plugin.'),
+    cacheDir: z.string().default('').description('Storage folder. Empty uses ~/.dsh/storages/dsh-laya-mcp-skill-router. Changing it restarts the plugin.'),
   })
 }
 
 export const Config = z
   ? buildSchema()
-  : { '~standard': { version: 1, vendor: 'dsh-dynamic-router', validate: validateConfig } }
+  : { '~standard': { version: 1, vendor: 'dsh-laya-mcp-skill-router', validate: validateConfig } }
 
 /**
  * Resolve config without going through Cordis, for tests and the eval script.
@@ -319,7 +319,7 @@ export const Config = z
  */
 export function resolveConfig(raw) {
   const result = validateConfig(raw)
-  if (result.issues) throw new Error(`dsh-dynamic-router config: ${result.issues[0].message}`)
+  if (result.issues) throw new Error(`dsh-laya-mcp-skill-router config: ${result.issues[0].message}`)
   return result.value
 }
 

@@ -13,7 +13,7 @@ import { chatCompletion } from './optimize.js'
 import { sidecarClient } from './laya.js'
 
 export const SETUP_TOOL = 'router_configure'
-export const SETUP_CONTEXT = 'dynamic-router-setup'
+export const SETUP_CONTEXT = 'laya-mcp-skill-router-setup'
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -137,7 +137,7 @@ export function setupPrompt({ hasLayaPlugin = false } = {}) {
       `If they have no Laya server, recommend that they ${LAYA_INSTALL}. Without Laya, routing uses embeddings and keyword matching only.`
   return [
     '## Tool router setup',
-    'The dsh-dynamic-router plugin has no saved settings yet. Before starting on the user\'s first request, ask them in one short message for:',
+    'The dsh-laya-mcp-skill-router plugin has no saved settings yet. Before starting on the user\'s first request, ask them in one short message for:',
     `1. Embeddings server: an Ollama URL (default ${DEFAULT_CONFIG.embeddingsUrl}) and embedding model (default ${DEFAULT_CONFIG.embeddingModel}), plus an API key only if that server needs one. No URL means keyword matching only.`,
     '2. Description optimizer model: an OpenAI-compatible base URL (for Ollama, http://<host>:11434/v1) with a model name and optional API key; or a DeepSeek Harness provider id and model; or nothing, to use the conversation model; or off.',
     laya,

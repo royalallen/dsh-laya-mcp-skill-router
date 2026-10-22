@@ -291,7 +291,7 @@ export class EmbeddingIndex {
     if (message !== this.lastError) {
       this.lastError = message
       this.logger?.warn?.(
-        `[dynamic-router] embeddings unavailable (${message}); routing uses BM25 only. ` +
+        `[laya-mcp-skill-router] embeddings unavailable (${message}); routing uses BM25 only. ` +
           `Start Ollama at ${this.url} and run \`ollama pull ${this.model}\`, or set embeddingsUrl: '' to silence this.`,
       )
     }

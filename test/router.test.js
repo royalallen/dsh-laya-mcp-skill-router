@@ -184,5 +184,5 @@ test('router_preview and router_stats report without changing state', async () =
 })
 
 test('README exists for the repo', () => {
-  assert.ok(readFileSync(new URL('../README.md', import.meta.url), 'utf8').includes('dsh-dynamic-router'))
+  assert.ok(readFileSync(new URL('../README.md', import.meta.url), 'utf8').includes('dsh-laya-mcp-skill-router'))
 })

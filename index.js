@@ -1,5 +1,5 @@
 /**
- * dsh-dynamic-router: per-step tool and skill routing for DeepSeek Harness.
+ * dsh-laya-mcp-skill-router: per-step tool and skill routing for DeepSeek Harness.
  *
  * Each step, recall (local Ollama embeddings plus BM25) and Laya pick the
  * tool groups and skills that fit the request. Unselected optional tools are
@@ -17,7 +17,7 @@ import { HINT_CONTEXT, Router } from './router.js'
 import { SETUP_CONTEXT, SettingsStore, mergeSettings, setupPrompt } from './settings.js'
 import { configureTool, routerTools } from './tools.js'
 
-export const name = 'dynamic-router'
+export const name = 'laya-mcp-skill-router'
 export const inject = ['tools', 'systemPrompt']
 export { Config }
 
@@ -108,18 +108,18 @@ export function apply(ctx, rawConfig) {
     try {
       next = resolveConfig(mergeSettings(unwrapConfig(rawConfig), settings.value))
     } catch (error) {
-      logger.warn(`[dynamic-router] ignored a settings change: ${error?.message ?? error}`)
+      logger.warn(`[laya-mcp-skill-router] ignored a settings change: ${error?.message ?? error}`)
       return false
     }
     const previous = { ...config, optimizer: { ...config.optimizer } }
     Object.assign(config, next, { setupPending: !settings.configured })
     embeddings
       .reconfigure({ url: next.embeddingsUrl, model: next.embeddingModel, apiKey: next.embeddingsApiKey })
-      .catch((error) => logger.warn(`[dynamic-router] could not switch embeddings: ${error?.message ?? error}`))
+      .catch((error) => logger.warn(`[laya-mcp-skill-router] could not switch embeddings: ${error?.message ?? error}`))
     if (JSON.stringify(next.optimizer) !== JSON.stringify(previous.optimizer)) optimizer.reconfigure()
     router.reconfigure()
-    for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
-    logger.info(`[dynamic-router] settings applied · ${describe(config, ctx)}`)
+    for (const warning of configWarnings(config)) logger.warn(`[laya-mcp-skill-router] ${warning}`)
+    logger.info(`[laya-mcp-skill-router] settings applied · ${describe(config, ctx)}`)
     return true
   }
 
@@ -179,14 +179,14 @@ export function apply(ctx, rawConfig) {
         else {
           config.setupPending = true
           router.reconfigure()
-          logger.info(`[dynamic-router] no saved settings in ${settings.file}; the model will ask for them in the next conversation`)
+          logger.info(`[laya-mcp-skill-router] no saved settings in ${settings.file}; the model will ask for them in the next conversation`)
         }
         router.cardsChanged()
         optimizer.start()
-        logger.info(`[dynamic-router] ready · ${describe(config, ctx)}`)
-        for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
+        logger.info(`[laya-mcp-skill-router] ready · ${describe(config, ctx)}`)
+        for (const warning of configWarnings(config)) logger.warn(`[laya-mcp-skill-router] ${warning}`)
       })
-      .catch((error) => logger.warn(`[dynamic-router] could not load cached state from ${config.cacheDir}: ${error?.message ?? error}`))
+      .catch((error) => logger.warn(`[laya-mcp-skill-router] could not load cached state from ${config.cacheDir}: ${error?.message ?? error}`))
     return () => {
       disposed = true
       optimizer.stop()

@@ -275,7 +275,7 @@ export class Optimizer {
     if (!this.config.optimizer.enabled || this.timer) return
     const tick = () => {
       if (this.stopped) return
-      this.runOnce().catch((error) => this.logger.debug(`[dynamic-router] optimizer pass failed: ${error?.message ?? error}`))
+      this.runOnce().catch((error) => this.logger.debug(`[laya-mcp-skill-router] optimizer pass failed: ${error?.message ?? error}`))
       this.timer = setTimeout(tick, IDLE_MS)
       this.timer.unref?.()
     }
@@ -394,7 +394,7 @@ export class Optimizer {
       if (result.error) {
         this.failed += 1
         this.store.set(job.key, { status: 'rejected', sourceHash: job.hash, model, at: Date.now(), error: result.error })
-        this.logger.debug(`[dynamic-router] card for ${job.key} rejected: ${result.error}`)
+        this.logger.debug(`[laya-mcp-skill-router] card for ${job.key} rejected: ${result.error}`)
         return 'rejected'
       }
       this.store.set(job.key, { status: 'optimized', sourceHash: job.hash, model, at: Date.now(), card: result.card })
@@ -403,7 +403,7 @@ export class Optimizer {
         try {
           await writeBackDescription(job.path, result.card.description)
         } catch (error) {
-          this.logger.warn(`[dynamic-router] could not write the description back to ${job.path}: ${error?.message ?? error}`)
+          this.logger.warn(`[laya-mcp-skill-router] could not write the description back to ${job.path}: ${error?.message ?? error}`)
         }
       }
       return 'optimized'
@@ -413,7 +413,7 @@ export class Optimizer {
       this.lastError = error?.message ?? String(error)
       this.store.set(job.key, { status: 'failed', sourceHash: job.hash, model, at: Date.now(), error: this.lastError })
       this.logger.warn(
-        `[dynamic-router] optimizer call to ${route.label} failed (${this.lastError}). ` +
+        `[laya-mcp-skill-router] optimizer call to ${route.label} failed (${this.lastError}). ` +
           'Ask the model to reconfigure the tool router (router_configure) with a working base URL, API key and model, or turn the optimizer off.',
       )
       return 'failed'

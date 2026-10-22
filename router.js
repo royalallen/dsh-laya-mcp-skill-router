@@ -18,7 +18,7 @@ import { requestMoreDescription } from './tools.js'
 import { estimateTokens, hashOf } from './store.js'
 import { sourceHash } from './optimize.js'
 
-export const HINT_CONTEXT = 'dynamic-router:skills'
+export const HINT_CONTEXT = 'laya-mcp-skill-router:skills'
 const STATS_TURNS = 50
 const MISS_LIMIT = 200
 
@@ -171,7 +171,7 @@ export class Router {
       digest: catalogDigest([...groups.values(), ...skills.values()]),
     }
     this.catalog = catalog
-    this.reindex(catalog).catch((error) => this.logger.debug(`[dynamic-router] reindex failed: ${error?.message ?? error}`))
+    this.reindex(catalog).catch((error) => this.logger.debug(`[laya-mcp-skill-router] reindex failed: ${error?.message ?? error}`))
     return catalog
   }
 
@@ -323,7 +323,7 @@ export class Router {
       const snapshot = await skills.snapshot({ ...(cwd ? { cwd } : {}), signal, scope: agent })
       return snapshot?.skills ?? []
     } catch (error) {
-      this.logger.debug(`[dynamic-router] skill snapshot failed: ${error?.message ?? error}`)
+      this.logger.debug(`[laya-mcp-skill-router] skill snapshot failed: ${error?.message ?? error}`)
       return []
     }
   }
@@ -348,7 +348,7 @@ export class Router {
       selection = await this.select(agent, assembled, signal)
     } catch (error) {
       if (signal?.aborted) throw error
-      this.logger.warn(`[dynamic-router] selection failed (${error?.message ?? error}); sending every tool this step.`)
+      this.logger.warn(`[laya-mcp-skill-router] selection failed (${error?.message ?? error}); sending every tool this step.`)
       return assembled
     }
     const { catalog, ranked, history, query } = selection
@@ -469,7 +469,7 @@ export class Router {
           state.loaded.add(name)
         } catch (error) {
           if (signal?.aborted) throw error
-          this.logger.debug(`[dynamic-router] auto-load of ${name} failed: ${error?.message ?? error}`)
+          this.logger.debug(`[laya-mcp-skill-router] auto-load of ${name} failed: ${error?.message ?? error}`)
         }
       }
       state.autoLoad = []
@@ -653,7 +653,7 @@ export class Router {
     this.turnStats.push(entry)
     if (this.turnStats.length > STATS_TURNS) this.turnStats.shift()
     this.logger.info(
-      `[dynamic-router] ${this.config.apply ? '' : '(dry run) '}tools ${entry.toolsSent}/${entry.toolsFull} ` +
+      `[laya-mcp-skill-router] ${this.config.apply ? '' : '(dry run) '}tools ${entry.toolsSent}/${entry.toolsFull} ` +
         `(~${entry.fullTokens - entry.sentTokens} tokens saved)${sticky.changed ? '' : ' unchanged'} · ` +
         `skills ${skillCount}/${selection.catalog.skills.size} suggested · ` +
         `${selection.ranked.laya.ok ? `laya ${selection.ranked.laya.latencyMs} ms` : `laya off (${selection.ranked.laya.error ?? 'n/a'})`}`,

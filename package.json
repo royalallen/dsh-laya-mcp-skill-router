@@ -1,5 +1,5 @@
 {
-  "name": "dsh-dynamic-router",
+  "name": "dsh-laya-mcp-skill-router",
   "version": "0.5.0",
   "description": "Per-turn tool and skill router for DeepSeek Harness: local embeddings/BM25 recall plus Laya decisions pick which tools and skills reach the model, so a remote Ollama gets a small, cache-stable context.",
   "keywords": [
@@ -31,11 +31,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/royalallen/dsh-dynamic-router.git"
+    "url": "git+https://github.com/royalallen/dsh-laya-mcp-skill-router.git"
   },
-  "homepage": "https://github.com/royalallen/dsh-dynamic-router#readme",
+  "homepage": "https://github.com/royalallen/dsh-laya-mcp-skill-router#readme",
   "bugs": {
-    "url": "https://github.com/royalallen/dsh-dynamic-router/issues"
+    "url": "https://github.com/royalallen/dsh-laya-mcp-skill-router/issues"
   },
   "dsh": {
     "manifestVersion": 1,

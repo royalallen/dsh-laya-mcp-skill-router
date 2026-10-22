@@ -1,9 +1,9 @@
-# dsh-dynamic-router
+# dsh-laya-mcp-skill-router
 
 Per-step tool and skill routing for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Each step, the router picks the MCP/plugin tools and Agent Skills that fit the request and sends only those to the model. Every tool schema and every skill description would otherwise ride along on every request, so this keeps the prompt small for a remote Ollama endpoint.
 
 ```powershell
-dsh plugin --profile desktop add github:royalallen/dsh-dynamic-router
+dsh plugin --profile desktop add github:royalallen/dsh-laya-mcp-skill-router
 ```
 
 ## How it works
@@ -14,7 +14,7 @@ dsh plugin --profile desktop add github:royalallen/dsh-dynamic-router
 4. **Tools.** Core tools (`bash`, `pwsh`, `read`, `write`, `edit`, `glob`, `grep`, `skill`, `request_more`) always go out. Routable tools are grouped (config groups, then `mcp__<server>__*`, then optimizer groups, then shared name prefix), and only selected groups go out, within `maxTools` and `maxToolsPerGroup`. Tools called in the last `stickyTurns` turns stay. Small removals are skipped so the cached prompt prefix survives. A call to a hidden tool is denied with a message telling the model how to load it.
 5. **Skills.** The harness's full `<available_skills>` catalog is replaced with a names-only directory grouped by category. That directory is stable and cache-friendly. Each step's runtime context gets a short "Suggested skills" list with descriptions. Skills where Laya (≥ `autoLoadThreshold`) and recall agree are loaded up front, at most `maxAutoLoad` per turn.
 6. **Escalation.** `request_more` loads a group or named tools for the next step, or searches skills by description. It is capped at `maxEscalations` per turn. Its description lists the tool groups.
-7. **Optimizer.** While no turn is running, a background job asks a model to write a routing card for each skill, group and lone tool: description, example triggers, "not for" examples, category. Cards that are not grounded in the source text are rejected. Cards are stored in `~/.dsh/storages/dsh-dynamic-router/cards.json` and used only for routing. `SKILL.md` files are untouched unless `optimizer.writeBack: true`. The model is chosen during first-run setup: an OpenAI-compatible base URL, API key and model (Ollama serves one at `http://<host>:11434/v1`), or a provider id from the harness's model settings, or nothing, which uses the model your conversations use.
+7. **Optimizer.** While no turn is running, a background job asks a model to write a routing card for each skill, group and lone tool: description, example triggers, "not for" examples, category. Cards that are not grounded in the source text are rejected. Cards are stored in `~/.dsh/storages/dsh-laya-mcp-skill-router/cards.json` and used only for routing. `SKILL.md` files are untouched unless `optimizer.writeBack: true`. The model is chosen during first-run setup: an OpenAI-compatible base URL, API key and model (Ollama serves one at `http://<host>:11434/v1`), or a provider id from the harness's model settings, or nothing, which uses the model your conversations use.
 
 Settings tool: `router_configure`. Inspection tools: `router_preview` (what would be selected for a request), `router_stats` (tokens saved, Laya latency, misses), `router_cards` (optimizer cards).
 
@@ -29,9 +29,9 @@ Everything degrades gracefully. Without Laya the router uses recall with a wider
 
 ## Configuration
 
-**First run.** Until settings are saved, the model asks you at the start of a conversation for the embeddings server, the optimizer model (endpoint, model and API key), and the Laya sidecar URL, then saves your answers with the `router_configure` tool. Reply "defaults" to keep the defaults. Settings apply immediately and are kept in `~/.dsh/storages/dsh-dynamic-router/settings.json`, including any API keys, in plain text. To change them later, ask the model to reconfigure the tool router. To be asked again, delete that file.
+**First run.** Until settings are saved, the model asks you at the start of a conversation for the embeddings server, the optimizer model (endpoint, model and API key), and the Laya sidecar URL, then saves your answers with the `router_configure` tool. Reply "defaults" to keep the defaults. Settings apply immediately and are kept in `~/.dsh/storages/dsh-laya-mcp-skill-router/settings.json`, including any API keys, in plain text. To change them later, ask the model to reconfigure the tool router. To be asked again, delete that file.
 
-Saved settings override the Cordis config. Everything else can be set in your profile `cordis.patch.yml` with an entry targeting `id: dynamic-router`; edits there apply without a restart, except `cacheDir`. Defaults are in [`config.js`](config.js); the most useful settings:
+Saved settings override the Cordis config. Everything else can be set in your profile `cordis.patch.yml` with an entry targeting `id: laya-mcp-skill-router`; edits there apply without a restart, except `cacheDir`. Defaults are in [`config.js`](config.js); the most useful settings:
 
 | Key | Default | What it does |
 | --- | --- | --- |
