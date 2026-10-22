@@ -1,8 +1,10 @@
 # dsh-dynamic-router - the Cordis row.
 #
-# Every value has a default in config.js. Change settings on the plugin's page
-# in DeepSeek Harness (Settings > Plugins > dsh-dynamic-router > the component
-# row); edits are saved to your profile cordis.patch.yml and apply live.
+# Every value has a default in config.js. On first run the model asks for the
+# embeddings, optimizer and Laya settings and saves them to
+# ~/.dsh/storages/dsh-dynamic-router/settings.json, which overrides these
+# values. Override anything else in your profile cordis.patch.yml with an
+# id-targeted entry (`id: dynamic-router`); edits apply live.
 - insert:
     - id: dynamic-router
       name: 'dsh-dynamic-router'

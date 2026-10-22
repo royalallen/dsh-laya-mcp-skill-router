@@ -7,6 +7,7 @@ import { stickySet, filterAssembly, toolsForGroups } from '../filter.js'
 import { buildToolCatalog, partitionTools } from '../catalog.js'
 import { chooseAutoLoad, chooseSkills, renderDirectory, renderHint } from '../skills.js'
 import { Optimizer, chatCompletion, extractJson, validateCard } from '../optimize.js'
+import { checkSettings, describeSettings, mergeSettings, settingsFromArgs } from '../settings.js'
 import { fakeLaya, tool } from './helpers.js'
 
 test('config: defaults merge and bad values are rejected', () => {
@@ -80,6 +81,27 @@ test('laya sidecar client posts to /ask and backs off after a refused connection
   now = 1001
   await assert.rejects(down.ask({}))
   assert.equal(calls, 2)
+})
+
+test('setup: saved settings layer over config and keep earlier values', () => {
+  const first = settingsFromArgs({ optimizerBaseUrl: ' http://h:11434/v1 ', optimizerModel: 'm' }, undefined)
+  assert.equal(first.optimizer.baseUrl, 'http://h:11434/v1')
+  const second = settingsFromArgs({ layaUrl: '' }, first)
+  assert.equal(second.optimizer.model, 'm')
+  assert.equal(second.layaUrl, '')
+  const merged = mergeSettings({ maxTools: 7, optimizer: { maxTokens: 900 } }, second)
+  assert.equal(merged.maxTools, 7)
+  assert.equal(merged.optimizer.maxTokens, 900)
+  assert.equal(merged.optimizer.baseUrl, 'http://h:11434/v1')
+  assert.equal(merged.configuredAt, undefined)
+  assert.ok(checkSettings({}, { embeddingsUrl: 'nope' }).error)
+  assert.match(describeSettings(checkSettings({}, second).config), /m at http:\/\/h:11434\/v1/)
+})
+
+test('setup: router_configure is core only while setup is pending', () => {
+  const tools = [tool('router_configure'), tool('bash')]
+  assert.ok(partitionTools(tools, resolveConfig({ setupPending: true })).core.some((t) => t.name === 'router_configure'))
+  assert.ok(partitionTools(tools, resolveConfig({})).routable.some((t) => t.name === 'router_configure'))
 })
 
 test('embeddings reconfigure switches model and clears failures', async () => {

@@ -14,9 +14,9 @@ dsh plugin --profile desktop add github:royalallen/dsh-dynamic-router
 4. **Tools.** Core tools (`bash`, `pwsh`, `read`, `write`, `edit`, `glob`, `grep`, `skill`, `request_more`) always go out. Routable tools are grouped (config groups, then `mcp__<server>__*`, then optimizer groups, then shared name prefix), and only selected groups go out, within `maxTools` and `maxToolsPerGroup`. Tools called in the last `stickyTurns` turns stay. Small removals are skipped so the cached prompt prefix survives. A call to a hidden tool is denied with a message telling the model how to load it.
 5. **Skills.** The harness's full `<available_skills>` catalog is replaced with a names-only directory grouped by category. That directory is stable and cache-friendly. Each step's runtime context gets a short "Suggested skills" list with descriptions. Skills where Laya (≥ `autoLoadThreshold`) and recall agree are loaded up front, at most `maxAutoLoad` per turn.
 6. **Escalation.** `request_more` loads a group or named tools for the next step, or searches skills by description. It is capped at `maxEscalations` per turn. Its description lists the tool groups.
-7. **Optimizer.** While no turn is running, a background job asks a model to write a routing card for each skill, group and lone tool: description, example triggers, "not for" examples, category. Cards that are not grounded in the source text are rejected. Cards are stored in `~/.dsh/storages/dsh-dynamic-router/cards.json` and used only for routing. `SKILL.md` files are untouched unless `optimizer.writeBack: true`. The model is chosen in the plugin's settings: an OpenAI-compatible base URL, API key and model (Ollama serves one at `http://<host>:11434/v1`), or a provider id from the harness's model settings, or nothing, which uses the model your conversations use.
+7. **Optimizer.** While no turn is running, a background job asks a model to write a routing card for each skill, group and lone tool: description, example triggers, "not for" examples, category. Cards that are not grounded in the source text are rejected. Cards are stored in `~/.dsh/storages/dsh-dynamic-router/cards.json` and used only for routing. `SKILL.md` files are untouched unless `optimizer.writeBack: true`. The model is chosen during first-run setup: an OpenAI-compatible base URL, API key and model (Ollama serves one at `http://<host>:11434/v1`), or a provider id from the harness's model settings, or nothing, which uses the model your conversations use.
 
-Inspection tools: `router_preview` (what would be selected for a request), `router_stats` (tokens saved, Laya latency, misses), `router_cards` (optimizer cards).
+Settings tool: `router_configure`. Inspection tools: `router_preview` (what would be selected for a request), `router_stats` (tokens saved, Laya latency, misses), `router_cards` (optimizer cards).
 
 ## Requirements
 
@@ -29,7 +29,9 @@ Everything degrades gracefully. Without Laya the router uses recall with a wider
 
 ## Configuration
 
-Open **Settings > Plugins > dsh-dynamic-router** and click the `dsh-dynamic-router` component row. The form there edits every setting except `cacheDir`; changes are saved to your profile `cordis.patch.yml` and apply without a restart. API keys are stored as secrets and never shown back. You can also edit the profile `cordis.patch.yml` directly with an entry targeting `id: dynamic-router`. Defaults are in [`config.js`](config.js); the most useful settings:
+**First run.** Until settings are saved, the model asks you at the start of a conversation for the embeddings server, the optimizer model (endpoint, model and API key), and the Laya sidecar URL, then saves your answers with the `router_configure` tool. Reply "defaults" to keep the defaults. Settings apply immediately and are kept in `~/.dsh/storages/dsh-dynamic-router/settings.json`, including any API keys, in plain text. To change them later, ask the model to reconfigure the tool router. To be asked again, delete that file.
+
+Saved settings override the Cordis config. Everything else can be set in your profile `cordis.patch.yml` with an entry targeting `id: dynamic-router`; edits there apply without a restart, except `cacheDir`. Defaults are in [`config.js`](config.js); the most useful settings:
 
 | Key | Default | What it does |
 | --- | --- | --- |
@@ -57,12 +59,12 @@ npm run eval      # skill recall against your live catalog and Laya (see eval/)
 
 ## Troubleshooting
 
-- **No settings form on the plugin page**: click the component row under Components, not the package header. The form only appears while the component is running.
+- **The model never asked for settings**: it only asks while `settings.json` is missing. Delete it to start setup again, or ask the model to call `router_configure`.
 - **"embeddings unavailable"**: start Ollama at the embeddings URL and run `ollama pull nomic-embed-text`. To use BM25 only and silence the warning, clear the embeddings URL.
 - **"neither dsh-laya nor a Laya URL is available"** or `router_preview` shows "cannot reach the Laya sidecar": start the sidecar with `laya-mcp serve` (or install `dsh-laya` with `lifecycle: spawn`), point `layaUrl` at it, or set `selector: embeddings`. After a refused connection the router retries the sidecar once a minute.
 - **The model says a tool is missing**: run `router_preview` with the request to see why. Add the tool to `alwaysInclude`, or lower `groupKeep`.
 - **A skill was not suggested**: `router_stats` lists skills the model loaded without a suggestion. Add the skill to `alwaysSkills` or `companions`, or let the optimizer write a card for it.
-- **Optimizer calls fail**: check the optimizer base URL (it must include `/v1` for Ollama), API key and model, or pick a harness provider and model that work in a normal conversation. To stop the job, turn `optimizer.enabled` off.
+- **Optimizer calls fail**: ask the model to reconfigure the tool router with a working base URL (it must include `/v1` for Ollama), API key and model, or a harness provider and model that work in a normal conversation. To stop the job, have it turn the optimizer off.
 
 ## License
 

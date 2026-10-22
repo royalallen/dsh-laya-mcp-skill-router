@@ -14,7 +14,8 @@ import { sidecarClient } from './laya.js'
 import { EmbeddingIndex } from './recall.js'
 import { CardStore, Optimizer } from './optimize.js'
 import { HINT_CONTEXT, Router } from './router.js'
-import { routerTools } from './tools.js'
+import { SETUP_CONTEXT, SETUP_PROMPT, SettingsStore, mergeSettings } from './settings.js'
+import { configureTool, routerTools } from './tools.js'
 
 export const name = 'dynamic-router'
 export const inject = ['tools', 'systemPrompt']
@@ -65,8 +66,9 @@ const describe = (config, ctx) => {
 
 /** Cordis plugin entry. */
 export function apply(ctx, rawConfig) {
-  const config = { ...resolveConfig(unwrapConfig(rawConfig)) }
+  const config = { ...resolveConfig(unwrapConfig(rawConfig)), setupPending: false }
   const logger = makeLogger(ctx, config)
+  const settings = new SettingsStore(config.cacheDir)
   const cards = new CardStore(config.cacheDir)
   const embeddings = new EmbeddingIndex({
     url: config.embeddingsUrl,
@@ -94,16 +96,16 @@ export function apply(ctx, rawConfig) {
     fallbackRoute: () => router.lastRoute,
   })
 
-  ctx.on('loader/volatile-update', () => {
+  const reapply = () => {
     let next
     try {
-      next = resolveConfig(unwrapConfig(rawConfig))
+      next = resolveConfig(mergeSettings(unwrapConfig(rawConfig), settings.value))
     } catch (error) {
       logger.warn(`[dynamic-router] ignored a settings change: ${error?.message ?? error}`)
-      return
+      return false
     }
     const previous = { ...config, optimizer: { ...config.optimizer } }
-    Object.assign(config, next)
+    Object.assign(config, next, { setupPending: !settings.configured })
     if (next.layaUrl !== previous.layaUrl) sidecar = next.layaUrl ? sidecarClient(next.layaUrl) : undefined
     embeddings
       .reconfigure({ url: next.embeddingsUrl, model: next.embeddingModel, apiKey: next.embeddingsApiKey })
@@ -112,7 +114,10 @@ export function apply(ctx, rawConfig) {
     router.reconfigure()
     for (const warning of configWarnings(config)) logger.warn(`[dynamic-router] ${warning}`)
     logger.info(`[dynamic-router] settings applied · ${describe(config, ctx)}`)
-  })
+    return true
+  }
+
+  ctx.on('loader/volatile-update', () => reapply())
 
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => router.noteClaimed(agent, message, turn))
 
@@ -135,6 +140,7 @@ export function apply(ctx, rawConfig) {
 
   ctx.effect(() => ctx.tools.guard((exec) => router.guard(exec)))
   for (const definition of routerTools(router)) ctx.effect(() => ctx.tools.register(definition))
+  ctx.effect(() => ctx.tools.register(configureTool({ settings, base: () => unwrapConfig(rawConfig), reapply, config })))
   ctx.effect(() =>
     ctx.systemPrompt.context({
       name: HINT_CONTEXT,
@@ -144,12 +150,27 @@ export function apply(ctx, rawConfig) {
       text: (context) => router.hintFor(context?.agent),
     }),
   )
+  ctx.effect(() =>
+    ctx.systemPrompt.context({
+      name: SETUP_CONTEXT,
+      order: HINT_ORDER + 1,
+      required: true,
+      interpolate: false,
+      text: () => (config.setupPending ? SETUP_PROMPT : ''),
+    }),
+  )
 
   ctx.effect(() => {
     let disposed = false
-    Promise.all([cards.load(), embeddings.load()])
+    Promise.all([cards.load(), embeddings.load(), settings.load()])
       .then(() => {
         if (disposed) return
+        if (settings.configured) reapply()
+        else {
+          config.setupPending = true
+          router.reconfigure()
+          logger.info(`[dynamic-router] no saved settings in ${settings.file}; the model will ask for them in the next conversation`)
+        }
         router.cardsChanged()
         optimizer.start()
         logger.info(`[dynamic-router] ready · ${describe(config, ctx)}`)

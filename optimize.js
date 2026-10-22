@@ -414,7 +414,7 @@ export class Optimizer {
       this.store.set(job.key, { status: 'failed', sourceHash: job.hash, model, at: Date.now(), error: this.lastError })
       this.logger.warn(
         `[dynamic-router] optimizer call to ${route.label} failed (${this.lastError}). ` +
-          'Check the optimizer base URL, API key and model in the plugin settings, or turn the optimizer off.',
+          'Ask the model to reconfigure the tool router (router_configure) with a working base URL, API key and model, or turn the optimizer off.',
       )
       return 'failed'
     } finally {

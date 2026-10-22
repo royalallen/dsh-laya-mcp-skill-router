@@ -1,7 +1,17 @@
 /**
- * Model-facing tools: `request_more` (escalation), and the inspection tools
- * `router_preview`, `router_stats`, `router_cards`.
+ * Model-facing tools: `request_more` (escalation), the inspection tools
+ * `router_preview`, `router_stats`, `router_cards`, and `router_configure`
+ * for first-run setup.
  */
+
+import {
+  SETUP_TOOL,
+  SETUP_TOOL_DESCRIPTION,
+  SETUP_TOOL_PARAMETERS,
+  checkSettings,
+  describeSettings,
+  settingsFromArgs,
+} from './settings.js'
 
 let hostDefineTool
 try {
@@ -140,4 +150,38 @@ export function routerTools(router) {
   })
 
   return [requestMore, preview, stats, cards]
+}
+
+/**
+ * `router_configure`: save settings the user gave in conversation.
+ * @param options - `settings` (SettingsStore), `base()` returning the plain Cordis config,
+ *   `reapply()` applying saved settings, and the live `config`.
+ * @returns the tool definition.
+ */
+export function configureTool({ settings, base, reapply, config }) {
+  return defineTool({
+    name: SETUP_TOOL,
+    description: SETUP_TOOL_DESCRIPTION,
+    parameters: SETUP_TOOL_PARAMETERS,
+    output: TEXT_OUTPUT,
+    async execute(args) {
+      const given = Object.keys(args ?? {}).filter((key) => key !== 'useDefaults' && args[key] !== undefined)
+      if (given.length === 0 && args?.useDefaults !== true) {
+        return { text: 'Nothing to save. Pass the settings the user gave, or useDefaults: true to accept the defaults.' }
+      }
+      const candidate = settingsFromArgs(args ?? {}, settings.value)
+      const checked = checkSettings(base(), candidate)
+      if (checked.error) return { text: `Not saved: ${checked.error}. Ask the user for a corrected value.` }
+      try {
+        await settings.save(candidate)
+      } catch (error) {
+        return { text: `Not saved: could not write ${settings.file} (${error?.message ?? error}).` }
+      }
+      reapply()
+      return { text: `Router settings saved to ${settings.file} and applied.\n${describeSettings(config)}` }
+    },
+    presentCall() {
+      return { card: 'generic', title: 'Configure tool router', kind: 'edit', rawInput: '' }
+    },
+  })
 }

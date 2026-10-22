@@ -1,10 +1,9 @@
 /**
  * Router configuration: defaults, validation, and the `Config` schema Cordis
  * validates before `apply()` runs. Inside the harness `Config` is a
- * schemastery schema; the plugin page in Settings shows a form for its
- * `.volatile()` fields, and edits reach the running plugin as
- * `loader/volatile-update`. Outside the harness (tests, the eval script) a
- * Standard Schema validator stands in.
+ * schemastery schema whose `.volatile()` fields reach the running plugin as
+ * `loader/volatile-update` when the profile patch changes. Outside the
+ * harness (tests, the eval script) a Standard Schema validator stands in.
  */
 
 import { homedir } from 'node:os'
@@ -204,8 +203,8 @@ export function validateConfig(value) {
 }
 
 /**
- * Half-finished settings that are allowed (a settings form saves one field at
- * a time) but leave a feature off until completed.
+ * Half-finished settings that are allowed (setup and patch edits can set one
+ * field at a time) but leave a feature off until completed.
  * @param config - resolved config.
  * @returns warning messages.
  */
@@ -231,8 +230,7 @@ const strings = (value, text) => z.array(z.string()).default([...value]).descrip
 /**
  * The settings-GUI schema. Field defaults mirror DEFAULT_CONFIG; `apply()`
  * runs the result through `resolveConfig`. Every field but `cacheDir` is
- * volatile, so it appears in the plugin's settings form and applies without
- * a restart.
+ * volatile, so patch edits apply without a restart.
  * @returns a schemastery object schema.
  */
 function buildSchema() {

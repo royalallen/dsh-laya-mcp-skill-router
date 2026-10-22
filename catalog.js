@@ -8,7 +8,7 @@ import { basename, dirname } from 'node:path'
 import { globMatch, hashOf } from './store.js'
 
 export const ROUTER_GROUP = 'router'
-export const ROUTER_TOOLS = ['router_preview', 'router_stats', 'router_cards']
+export const ROUTER_TOOLS = ['router_preview', 'router_stats', 'router_cards', 'router_configure']
 const ROUTER_GROUP_DESCRIPTION =
   'Inspect the tool and skill router itself: preview what it would select for a request, ' +
   'show token savings and missed skills, list description cards.'
@@ -55,7 +55,8 @@ export function partitionTools(tools, config) {
   const core = []
   const routable = []
   for (const tool of tools) {
-    if (tool.name === 'run_code' || keep.some((pattern) => globMatch(pattern, tool.name))) core.push(tool)
+    const setup = tool.name === 'router_configure' && config.setupPending
+    if (setup || tool.name === 'run_code' || keep.some((pattern) => globMatch(pattern, tool.name))) core.push(tool)
     else routable.push(tool)
   }
   return { core, routable }
