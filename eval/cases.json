@@ -1,0 +1,12 @@
+[
+  { "request": "Draw an architecture diagram of this repo's services and how they talk to each other", "expect": ["architecture-diagrams"] },
+  { "request": "Write an implementation plan for adding OAuth login before we start coding", "expect": ["implementation-planning"] },
+  { "request": "Break this feature spec into ordered tasks with tests for each step", "expect": ["implementation-planning"] },
+  { "request": "Redesign the settings page so it looks polished and consistent", "expect": ["ui-design"] },
+  { "request": "Critique the visual hierarchy and spacing of this landing page", "expect": ["ui-design"] },
+  { "request": "Make this form accessible for screen reader users", "expect": ["accessibility"] },
+  { "request": "My laptop keeps dropping Wi-Fi every few minutes on Windows 11", "expect": ["wifi-troubleshooting"] },
+  { "request": "The printer shows offline even though it is on the network", "expect": ["printer-troubleshooting"] },
+  { "request": "Outlook keeps asking for my password", "expect": ["email-troubleshooting"] },
+  { "request": "This SQL query takes 30 seconds, make it faster", "expect": ["sql-tuning"] }
+]

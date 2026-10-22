@@ -1,0 +1,41 @@
+# dsh-dynamic-router - the Cordis row.
+#
+# Every value has a default in config.js; anything set here or in your own
+# profile patch overrides it. Override in your profile cordis.patch.yml with an
+# id-targeted entry (`id: dynamic-router`) so upgrades keep your settings.
+- insert:
+    - id: dynamic-router
+      name: 'dsh-dynamic-router'
+      config:
+        # laya | embeddings | bm25. `laya` uses the dsh-laya service when it is
+        # mounted and falls back to embeddings + BM25 recall when it is not.
+        selector: laya
+
+        # Tools never filtered. Names differ between profiles; extend as needed.
+        coreTools: [bash, pwsh, read, write, edit, glob, grep, skill, request_more]
+
+        # Budgets for what reaches the model per request.
+        maxTools: 12
+        maxToolsPerGroup: 5
+        maxSkills: 8
+
+        # Local embeddings for recall. Loopback Ollama; pull the model once with
+        # `ollama pull nomic-embed-text`. Leave embeddingsUrl '' to use BM25 only.
+        embeddingsUrl: 'http://127.0.0.1:11434'
+        embeddingModel: nomic-embed-text
+
+        # Background description optimizer. Runs only when no agent turn is
+        # active, through the harness's own LLM providers. Leave provider and
+        # model empty to use the model your conversations use, or pick a
+        # provider id and model from DeepSeek Harness settings. Cards are
+        # written to ~/.dsh/storages/dsh-dynamic-router/cards.json; SKILL.md
+        # files are not edited unless writeBack is true.
+        optimizer:
+          enabled: true
+          provider: ''
+          model: ''
+          writeBack: false
+
+        # false = log each turn's selection but send the full lists (dry run).
+        apply: true
+        logLevel: info
