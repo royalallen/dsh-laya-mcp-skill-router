@@ -23,6 +23,12 @@ export const DEFAULT_OPTIMIZER = Object.freeze({
   maxTokens: 1200,
 })
 
+/** Must match dsh-laya's default `sidecarUrl`; used when neither dsh-laya nor a Laya URL is present. */
+export const DSH_LAYA_URL = 'http://127.0.0.1:8787'
+
+/** The Laya sidecar URL to call directly, or undefined to go through dsh-laya. */
+export const directLayaUrl = (config, hasPlugin) => config.layaUrl || (hasPlugin ? undefined : DSH_LAYA_URL)
+
 export const DEFAULT_CONFIG = Object.freeze({
   selector: 'laya',
   coreTools: ['bash', 'pwsh', 'read', 'write', 'edit', 'glob', 'grep', 'skill', 'request_more'],
@@ -259,7 +265,7 @@ function buildSchema() {
     selector: z.union(['laya', 'embeddings', 'bm25']).default(d.selector)
       .description('How skills and tool groups are judged. laya uses the sidecar at the Laya URL, or the dsh-laya plugin, and falls back to recall.'),
     layaUrl: z.string().default(d.layaUrl)
-      .description('Laya sidecar (`laya-mcp serve`) to use instead of the dsh-laya plugin. Leave empty to use dsh-laya and its settings.'),
+      .description('Laya sidecar (`laya-mcp serve`) to use instead of the dsh-laya plugin. Leave empty to use dsh-laya and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.'),
     coreTools: strings(d.coreTools, 'Tools that are always sent. Names or * patterns.'),
     alwaysInclude: strings(d.alwaysInclude, 'Extra tools that are always sent. Names or * patterns.'),
     groups: z.array(z.object({

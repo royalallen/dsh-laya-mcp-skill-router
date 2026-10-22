@@ -7,7 +7,7 @@
 
 import { join } from 'node:path'
 import { readJson, withTimeout, writeJsonAtomic } from './store.js'
-import { DEFAULT_CONFIG, DEFAULT_OPTIMIZER, validateConfig } from './config.js'
+import { DEFAULT_CONFIG, DEFAULT_OPTIMIZER, DSH_LAYA_URL, directLayaUrl, validateConfig } from './config.js'
 import { EmbeddingIndex } from './recall.js'
 import { chatCompletion } from './optimize.js'
 import { sidecarClient } from './laya.js'
@@ -103,7 +103,7 @@ export function describeSettings(config) {
   return [
     `Embeddings: ${config.embeddingsUrl ? `${config.embeddingModel} at ${config.embeddingsUrl} (API key ${mask(config.embeddingsApiKey)})` : 'off (keyword matching only)'}`,
     `Optimizer: ${optimizer}`,
-    `Laya: ${config.selector === 'laya' ? (config.layaUrl ? `the sidecar at ${config.layaUrl}` : 'the dsh-laya plugin and its settings') : `off (selector ${config.selector})`}`,
+    `Laya: ${config.selector === 'laya' ? (config.layaUrl ? `the sidecar at ${config.layaUrl}` : `the dsh-laya plugin and its settings, or dsh-laya's default endpoint ${DSH_LAYA_URL} when it is not installed`) : `off (selector ${config.selector})`}`,
   ].join('\n')
 }
 
@@ -131,7 +131,8 @@ export function setupPrompt({ hasLayaPlugin = false } = {}) {
   const laya = hasLayaPlugin
     ? '3. Laya (optional): the URL of a Laya server (`laya-mcp serve`) to use instead of the installed dsh-laya plugin. Left blank, the router uses the dsh-laya plugin and its settings.'
     : '3. Laya (optional): the URL of their own Laya server (`laya-mcp serve`), if they run one. ' +
-      `If they do not, recommend that they ${LAYA_INSTALL}; once it is installed the router uses it automatically. Without Laya, routing uses embeddings and keyword matching only.`
+      `Left blank, the router uses the same endpoint dsh-laya uses by default, ${DSH_LAYA_URL}. ` +
+      `If they have no Laya server, recommend that they ${LAYA_INSTALL}. Without Laya, routing uses embeddings and keyword matching only.`
   return [
     '## Tool router setup',
     'The dsh-dynamic-router plugin has no saved settings yet. Before starting on the user\'s first request, ask them in one short message for:',
@@ -201,11 +202,13 @@ export async function testSettings(config, { laya, fetch: fetchImpl = globalThis
 
   const layaCheck = async () => {
     if (config.selector !== 'laya') return { ok: false, line: `Laya: not used (selector is ${config.selector}).` }
-    const client = config.layaUrl ? sidecarClient(config.layaUrl, { fetch: fetchImpl, retryMs: 0 }) : laya
-    if (!client) return { ok: false, line: 'Laya: no Laya URL given and the dsh-laya plugin is not installed.' }
+    const url = directLayaUrl(config, Boolean(laya))
+    const client = url ? sidecarClient(url, { fetch: fetchImpl, retryMs: 0 }) : laya
     const where = config.layaUrl
-      ? `the sidecar at ${config.layaUrl}`
-      : `the dsh-laya plugin's sidecar${laya.sidecarUrl ? ` at ${laya.sidecarUrl}` : ''}`
+      ? `the sidecar at ${url}`
+      : url
+        ? `dsh-laya's default endpoint ${url} (dsh-laya is not installed)`
+        : `the dsh-laya plugin's sidecar${laya.sidecarUrl ? ` at ${laya.sidecarUrl}` : ''}`
     const started = Date.now()
     try {
       const result = await withTimeout(client.ask(LAYA_PROBE, { signal: AbortSignal.timeout(timeoutMs) }), timeoutMs)
@@ -226,7 +229,8 @@ export async function testSettings(config, { laya, fetch: fetchImpl = globalThis
       : laya
         ? 'To fix Laya: start the sidecar dsh-laya points at (`pip install "laya-mcp[mcp]"`, then `laya-mcp serve`), set dsh-laya ' +
           '`lifecycle: spawn` with `spawnCommand: ["laya-mcp", "serve"]`, or point dsh-laya\'s `sidecarUrl` at a running sidecar.'
-        : `If the user has no Laya server, recommend that they ${LAYA_INSTALL}.`
+        : `To fix Laya: start a sidecar at ${DSH_LAYA_URL} (\`pip install "laya-mcp[mcp]"\`, then \`laya-mcp serve\`), ` +
+          `or ${LAYA_INSTALL}, or give the router the URL of a running sidecar.`
     lines.push(`${fix} Until then, routing uses embeddings and keyword matching.`)
   }
   return { lines, layaOk: layaResult.ok }
@@ -249,6 +253,6 @@ export const SETUP_TOOL_PARAMETERS = {
   optimizerApiKey: { type: 'string', description: 'API key for that endpoint, if it needs one.' },
   optimizerModel: { type: 'string', description: 'Model for the optimizer. Required with optimizerBaseUrl or optimizerProvider.' },
   optimizerProvider: { type: 'string', description: 'DeepSeek Harness provider id, used when optimizerBaseUrl is empty.' },
-  layaUrl: { type: 'string', description: 'URL of a `laya-mcp serve` sidecar, e.g. http://127.0.0.1:8787, used instead of the dsh-laya plugin. Empty string uses the dsh-laya plugin and its settings.' },
+  layaUrl: { type: 'string', description: 'URL of a `laya-mcp serve` sidecar to use instead of the dsh-laya plugin. Empty string uses the dsh-laya plugin and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.' },
   selector: { type: 'string', description: 'How skills and tool groups are judged: laya, embeddings, or bm25.' },
 }

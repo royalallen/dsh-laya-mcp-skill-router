@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { configWarnings, validateConfig, resolveConfig, unwrapConfig } from '../config.js'
+import { configWarnings, directLayaUrl, validateConfig, resolveConfig, unwrapConfig } from '../config.js'
 import { Bm25, EmbeddingIndex, rankItems, reciprocalRankFusion, tokenize } from '../recall.js'
 import { askAll, buildState, questionFor, sidecarClient, unionMerge } from '../laya.js'
 import { stickySet, filterAssembly, toolsForGroups } from '../filter.js'
@@ -99,16 +99,19 @@ test('setup: saved settings layer over config and keep earlier values', () => {
 })
 
 test('setup: connection tests report each service and recommend dsh-laya when Laya is missing', async () => {
+  const asked = []
   const fetch = async (url) => {
     if (url.endsWith('/api/embed')) return { ok: true, json: async () => ({ embeddings: [[0.1, 0.2, 0.3]] }) }
     if (url.endsWith('/chat/completions')) return { ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) }
+    asked.push(url)
     throw new Error('ECONNREFUSED')
   }
   const config = resolveConfig({ optimizer: { baseUrl: 'http://h/v1', model: 'm' } })
   const { lines, layaOk } = await testSettings(config, { fetch })
   assert.match(lines[0], /^Embeddings: OK.*3-dimension/)
   assert.match(lines[1], /^Optimizer: FAILED.*bad key/)
-  assert.match(lines[2], /^Laya: no Laya URL/)
+  assert.deepEqual(asked, ['http://127.0.0.1:8787/ask'])
+  assert.match(lines[2], /^Laya: FAILED, dsh-laya's default endpoint http:\/\/127\.0\.0\.1:8787/)
   assert.match(lines[3], /install the dsh-laya plugin/)
   assert.equal(layaOk, false)
 
@@ -123,7 +126,10 @@ test('setup: connection tests report each service and recommend dsh-laya when La
   const wrongServer = await testSettings(resolveConfig({ ...off, layaUrl: 'http://gw:32091' }), { fetch: notLaya, laya: plugin })
   assert.match(wrongServer.lines[2], /^Laya: FAILED, the sidecar at http:\/\/gw:32091/)
   assert.match(wrongServer.lines[3], /clear the Laya URL/)
-  assert.match(setupPrompt({ hasLayaPlugin: false }), /dsh-laya/)
+  assert.match(setupPrompt({ hasLayaPlugin: false }), /dsh-laya uses by default, http:\/\/127\.0\.0\.1:8787/)
+  assert.equal(directLayaUrl({ layaUrl: '' }, false), 'http://127.0.0.1:8787')
+  assert.equal(directLayaUrl({ layaUrl: '' }, true), undefined)
+  assert.equal(directLayaUrl({ layaUrl: 'http://gw:1' }, true), 'http://gw:1')
   assert.doesNotMatch(setupPrompt({ hasLayaPlugin: true }), /pip install/)
 })
 

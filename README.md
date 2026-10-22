@@ -9,7 +9,7 @@ dsh plugin --profile desktop add github:royalallen/dsh-dynamic-router
 ## How it works
 
 1. **Recall.** Local Ollama embeddings (`nomic-embed-text` on `http://127.0.0.1:11434`) plus BM25 rank tool groups, tools and skills against the current request, the previous request and recently used tools. The two rankings are fused by reciprocal rank. With no embeddings the router uses BM25 alone.
-2. **Laya.** One batched yes/no question per skill (all of them) and per top tool group goes to a Laya sidecar: the one at `layaUrl` when you give one, otherwise the one the `dsh-laya` plugin is configured for. Every question carries explicit true/false criteria.
+2. **Laya.** One batched yes/no question per skill (all of them) and per top tool group goes to a Laya sidecar: the one at `layaUrl` when you give one, otherwise the one the `dsh-laya` plugin is configured for, or `http://127.0.0.1:8787` (dsh-laya's default) when `dsh-laya` is not installed. Every question carries explicit true/false criteria.
 3. **Union merge.** An item is kept when Laya says yes, or when it is in the recall top N with real signal. Laya can add what recall missed. It cannot drop the recall floor, so a skill you need is not lost to one bad probability.
 4. **Tools.** Core tools (`bash`, `pwsh`, `read`, `write`, `edit`, `glob`, `grep`, `skill`, `request_more`) always go out. Routable tools are grouped (config groups, then `mcp__<server>__*`, then optimizer groups, then shared name prefix), and only selected groups go out, within `maxTools` and `maxToolsPerGroup`. Tools called in the last `stickyTurns` turns stay. Small removals are skipped so the cached prompt prefix survives. A call to a hidden tool is denied with a message telling the model how to load it.
 5. **Skills.** The harness's full `<available_skills>` catalog is replaced with a names-only directory grouped by category. That directory is stable and cache-friendly. Each step's runtime context gets a short "Suggested skills" list with descriptions. Skills where Laya (≥ `autoLoadThreshold`) and recall agree are loaded up front, at most `maxAutoLoad` per turn.
@@ -38,7 +38,7 @@ Saved settings override the Cordis config. Everything else can be set in your pr
 | `embeddingsUrl` / `embeddingModel` / `embeddingsApiKey` | `http://127.0.0.1:11434` / `nomic-embed-text` / empty | Ollama server for recall embeddings |
 | `optimizer.baseUrl` / `optimizer.apiKey` / `optimizer.model` | empty | OpenAI-compatible endpoint for the optimizer |
 | `optimizer.provider` | empty | Harness provider id, used when `baseUrl` is empty; empty provider and model use the conversation model |
-| `layaUrl` | empty | `laya-mcp serve` sidecar to use instead of `dsh-laya`; empty uses `dsh-laya` and its settings |
+| `layaUrl` | empty | `laya-mcp serve` sidecar to use instead of `dsh-laya`; empty uses `dsh-laya` and its settings, or `http://127.0.0.1:8787` (dsh-laya's default) when it is not installed |
 | `selector` | `laya` | `laya`, `embeddings`, or `bm25` |
 | `maxTools` / `maxToolsPerGroup` | 12 / 5 | Routable tool budget per request |
 | `maxSkills` | 8 | Suggested skills per step (plus `alwaysSkills`) |
