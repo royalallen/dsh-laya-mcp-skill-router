@@ -38,7 +38,7 @@ Saved settings override the Cordis config. Everything else can be set in your pr
 | `embeddingsUrl` / `embeddingModel` / `embeddingsApiKey` | `http://127.0.0.1:11434` / `nomic-embed-text` / empty | Ollama server for recall embeddings |
 | `optimizer.baseUrl` / `optimizer.apiKey` / `optimizer.model` | empty | OpenAI-compatible endpoint for the optimizer |
 | `optimizer.provider` | empty | Harness provider id, used when `baseUrl` is empty; empty provider and model use the conversation model |
-| `layaUrl` | empty | `laya-mcp serve` sidecar to use instead of `dsh-laya`; empty uses `dsh-laya` and its settings, or `http://127.0.0.1:8787` (dsh-laya's default) when it is not installed |
+| `layaUrl` / `layaApiKey` | empty / empty | Laya server to use instead of `dsh-laya`: laya-mcp (`/ask`), laya-serve (`/v1/systemone`), or a sidecar (`/system-one`), detected from the host URL (include the path to pin a route). Empty uses `dsh-laya` and its settings, or `http://127.0.0.1:8787` (dsh-laya's default) when it is not installed. The key is sent as a Bearer token |
 | `selector` | `laya` | `laya`, `embeddings`, or `bm25` |
 | `maxTools` / `maxToolsPerGroup` | 12 / 5 | Routable tool budget per request |
 | `maxSkills` | 8 | Suggested skills per step (plus `alwaysSkills`) |

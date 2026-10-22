@@ -2,7 +2,7 @@
  * Laya precision pass. One `noul` per skill and per group, each with explicit
  * `criteria` text for true and false (Laya is near chance without it), sent in
  * batches through the `ctx.laya` service published by dsh-laya, or straight to
- * a `laya-mcp serve` sidecar when dsh-laya is not installed.
+ * a Laya server (laya-mcp, laya-serve, or a sidecar).
  */
 
 import { shortDescription } from './catalog.js'
@@ -63,42 +63,72 @@ export function questionFor(item) {
 }
 
 /**
- * A minimal stand-in for `ctx.laya` that posts to the sidecar's `/ask`.
+ * Predict routes of known Laya servers, all taking `{ state, questions }` and
+ * returning `{ answers }`: laya-mcp `/ask`, laya-serve `/v1/systemone`, and
+ * the receptron sidecar `/system-one`.
+ */
+export const LAYA_ROUTES = ['/ask', '/v1/systemone', '/system-one']
+
+const MISSING_ROUTE = new Set([404, 405])
+
+/**
+ * A minimal stand-in for `ctx.laya` that posts to a Laya server. A URL with a
+ * path is used as the predict endpoint; a bare host URL tries
+ * {@link LAYA_ROUTES} in order and keeps the first that exists.
  * After a failed connection it fails fast for `retryMs`: on Windows a refused
  * loopback connection takes about two seconds, which every step would pay.
- * @param url - sidecar base URL, e.g. `http://127.0.0.1:8787`.
- * @param options - optional `fetch`, `retryMs`, `now`.
- * @returns `{ ask(body, { signal }) }` resolving to the sidecar payload.
+ * @param url - server URL, e.g. `http://127.0.0.1:8787` or `http://host:32091/system-one`.
+ * @param options - optional `apiKey`, `fetch`, `retryMs`, `now`.
+ * @returns `{ ask(body, { signal }) }` resolving to the server payload.
  */
-export function sidecarClient(url, { fetch: fetchImpl = globalThis.fetch, retryMs = 60000, now = Date.now } = {}) {
+export function sidecarClient(url, { apiKey = '', fetch: fetchImpl = globalThis.fetch, retryMs = 60000, now = Date.now } = {}) {
+  const parsed = new URL(url)
+  const pinned = parsed.pathname.replace(/\/+$/, '')
+  const routes = pinned ? [pinned] : LAYA_ROUTES
+  let route = pinned || undefined
   let downUntil = 0
   let lastError = ''
+  const headers = { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) }
+
+  const post = async (path, body, signal) => {
+    try {
+      return await fetchImpl(new URL(path, parsed.origin).toString(), { method: 'POST', headers, body: JSON.stringify(body), signal })
+    } catch (error) {
+      if (signal?.aborted) throw error
+      downUntil = now() + retryMs
+      lastError = `cannot reach the Laya server at ${url} (${error?.message ?? error})`
+      throw new Error(lastError)
+    }
+  }
+
   return {
     url,
+    get route() {
+      return route
+    },
     async ask(body, { signal } = {}) {
       if (now() < downUntil) throw new Error(lastError)
       let response
-      try {
-        response = await fetchImpl(new URL('/ask', url).toString(), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-          signal,
-        })
-      } catch (error) {
-        if (signal?.aborted) throw error
-        downUntil = now() + retryMs
-        lastError = `cannot reach the Laya sidecar at ${url} (${error?.message ?? error}); start it with \`laya-mcp serve\``
-        throw new Error(lastError)
+      for (const path of route ? [route] : routes) {
+        response = await post(path, body, signal)
+        if (!MISSING_ROUTE.has(response.status)) {
+          route = path
+          break
+        }
+      }
+      if (MISSING_ROUTE.has(response.status)) {
+        if (route && !pinned) route = undefined
+        throw new Error(`the server at ${url} has no Laya predict route (tried ${(pinned ? [pinned] : LAYA_ROUTES).join(', ')}); is it a Laya sidecar?`)
       }
       let payload
       try {
         payload = await response.json()
       } catch {
-        throw new Error(`the Laya sidecar at ${url} returned a non-JSON body (HTTP ${response.status})`)
+        throw new Error(`the Laya server at ${url} returned a non-JSON body (HTTP ${response.status})`)
       }
       if (!response.ok || payload?.ok === false) {
-        throw new Error(payload?.message ?? `the Laya sidecar at ${url} returned HTTP ${response.status}`)
+        const message = payload?.message ?? payload?.detail ?? payload?.error?.message ?? payload?.error
+        throw new Error(typeof message === 'string' ? message : `the Laya server at ${url}${route} returned HTTP ${response.status}`)
       }
       return payload
     },

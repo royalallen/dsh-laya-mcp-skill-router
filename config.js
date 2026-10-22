@@ -69,6 +69,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   embeddingsUrl: 'http://127.0.0.1:11434',
   embeddingModel: 'nomic-embed-text',
   embeddingsApiKey: '',
+  layaApiKey: '',
 
   apply: true,
   logLevel: 'info',
@@ -189,6 +190,7 @@ export function validateConfig(value) {
     return issue('embeddingModel must be a non-empty string', ['embeddingModel'])
   }
   if (typeof config.embeddingsApiKey !== 'string') return issue('embeddingsApiKey must be a string', ['embeddingsApiKey'])
+  if (typeof config.layaApiKey !== 'string') return issue('layaApiKey must be a string', ['layaApiKey'])
   if (typeof config.apply !== 'boolean') return issue('apply must be a boolean', ['apply'])
 
   const optimizer = config.optimizer
@@ -265,7 +267,8 @@ function buildSchema() {
     selector: z.union(['laya', 'embeddings', 'bm25']).default(d.selector)
       .description('How skills and tool groups are judged. laya uses the sidecar at the Laya URL, or the dsh-laya plugin, and falls back to recall.'),
     layaUrl: z.string().default(d.layaUrl)
-      .description('Laya sidecar (`laya-mcp serve`) to use instead of the dsh-laya plugin. Leave empty to use dsh-laya and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.'),
+      .description('Laya server to use instead of the dsh-laya plugin: laya-mcp (`/ask`), laya-serve (`/v1/systemone`), or a sidecar (`/system-one`), found automatically from the host URL; include the path to pin one. Leave empty to use dsh-laya and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.'),
+    layaApiKey: z.string().role('secret').default('').description('API key for the Laya server, sent as a Bearer token. Leave empty if it needs none.'),
     coreTools: strings(d.coreTools, 'Tools that are always sent. Names or * patterns.'),
     alwaysInclude: strings(d.alwaysInclude, 'Extra tools that are always sent. Names or * patterns.'),
     groups: z.array(z.object({

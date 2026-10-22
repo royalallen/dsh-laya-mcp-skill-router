@@ -81,8 +81,9 @@ export function apply(ctx, rawConfig) {
     const plugin = optional(ctx, 'laya')
     const url = directLayaUrl(config, Boolean(plugin))
     if (!url) return plugin
-    if (!sidecars.has(url)) sidecars.set(url, sidecarClient(url))
-    return sidecars.get(url)
+    const key = `${url}\n${config.layaApiKey}`
+    if (!sidecars.has(key)) sidecars.set(key, sidecarClient(url, { apiKey: config.layaApiKey }))
+    return sidecars.get(key)
   }
   const services = () => ({
     tools: ctx.tools,

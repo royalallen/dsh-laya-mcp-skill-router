@@ -75,12 +75,37 @@ test('laya sidecar client posts to /ask and backs off after a refused connection
       throw new Error('ECONNREFUSED')
     },
   })
-  await assert.rejects(down.ask({}), /laya-mcp serve/)
-  await assert.rejects(down.ask({}), /laya-mcp serve/)
+  await assert.rejects(down.ask({}), /cannot reach the Laya server/)
+  await assert.rejects(down.ask({}), /cannot reach the Laya server/)
   assert.equal(calls, 1)
   now = 1001
   await assert.rejects(down.ask({}))
   assert.equal(calls, 2)
+})
+
+test('laya client finds the predict route of any Laya server, honors a pinned path, and sends the API key', async () => {
+  const answer = { ok: true, status: 200, json: async () => ({ answers: { q0: { noul: 0.7 } } }) }
+  const missing = { ok: false, status: 404, json: async () => ({ detail: 'Not Found' }) }
+  const serving = (route, seen) => async (url, init) => {
+    seen.push([new URL(url).pathname, init.headers.authorization])
+    return new URL(url).pathname === route ? answer : missing
+  }
+
+  const seen = []
+  const serve = sidecarClient('http://gw:32091', { apiKey: 'k', fetch: serving('/v1/systemone', seen) })
+  assert.equal((await serve.ask({})).answers.q0.noul, 0.7)
+  await serve.ask({})
+  assert.deepEqual(seen.map(([path]) => path), ['/ask', '/v1/systemone', '/v1/systemone'])
+  assert.ok(seen.every(([, auth]) => auth === 'Bearer k'))
+  assert.equal(serve.route, '/v1/systemone')
+
+  const pinnedSeen = []
+  const pinned = sidecarClient('http://gw:32091/system-one/', { fetch: serving('/system-one', pinnedSeen) })
+  await pinned.ask({})
+  assert.deepEqual(pinnedSeen, [['/system-one', undefined]])
+
+  const none = sidecarClient('http://gw:1', { fetch: serving('/nowhere', []) })
+  await assert.rejects(none.ask({}), /no Laya predict route \(tried \/ask, \/v1\/systemone, \/system-one\)/)
 })
 
 test('setup: saved settings layer over config and keep earlier values', () => {
@@ -124,7 +149,7 @@ test('setup: connection tests report each service and recommend dsh-laya when La
 
   const notLaya = async () => ({ ok: false, status: 404, json: async () => ({}) })
   const wrongServer = await testSettings(resolveConfig({ ...off, layaUrl: 'http://gw:32091' }), { fetch: notLaya, laya: plugin })
-  assert.match(wrongServer.lines[2], /^Laya: FAILED, the sidecar at http:\/\/gw:32091/)
+  assert.match(wrongServer.lines[2], /^Laya: FAILED, the Laya server at http:\/\/gw:32091.*no Laya predict route/)
   assert.match(wrongServer.lines[3], /clear the Laya URL/)
   assert.match(setupPrompt({ hasLayaPlugin: false }), /dsh-laya uses by default, http:\/\/127\.0\.0\.1:8787/)
   assert.equal(directLayaUrl({ layaUrl: '' }, false), 'http://127.0.0.1:8787')

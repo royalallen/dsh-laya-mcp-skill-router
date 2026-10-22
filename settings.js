@@ -67,7 +67,7 @@ const OPTIMIZER_ARGS = {
   optimizerModel: 'model',
   optimizerProvider: 'provider',
 }
-const TOP_ARGS = ['embeddingsUrl', 'embeddingModel', 'embeddingsApiKey', 'layaUrl', 'selector']
+const TOP_ARGS = ['embeddingsUrl', 'embeddingModel', 'embeddingsApiKey', 'layaUrl', 'layaApiKey', 'selector']
 
 /**
  * Turn `router_configure` arguments into saved settings, keeping earlier
@@ -103,7 +103,7 @@ export function describeSettings(config) {
   return [
     `Embeddings: ${config.embeddingsUrl ? `${config.embeddingModel} at ${config.embeddingsUrl} (API key ${mask(config.embeddingsApiKey)})` : 'off (keyword matching only)'}`,
     `Optimizer: ${optimizer}`,
-    `Laya: ${config.selector === 'laya' ? (config.layaUrl ? `the sidecar at ${config.layaUrl}` : `the dsh-laya plugin and its settings, or dsh-laya's default endpoint ${DSH_LAYA_URL} when it is not installed`) : `off (selector ${config.selector})`}`,
+    `Laya: ${config.selector === 'laya' ? (config.layaUrl ? `the server at ${config.layaUrl} (API key ${mask(config.layaApiKey)})` : `the dsh-laya plugin and its settings, or dsh-laya's default endpoint ${DSH_LAYA_URL} when it is not installed`) : `off (selector ${config.selector})`}`,
   ].join('\n')
 }
 
@@ -118,6 +118,8 @@ export function checkSettings(base, settings) {
   return result.issues ? { error: result.issues[0].message } : { config: result.value }
 }
 
+const LAYA_KINDS = 'laya-mcp, laya-serve, or another Laya sidecar; the host URL is enough, the route is found automatically'
+
 export const LAYA_INSTALL =
   'install the dsh-laya plugin (Plugins page, or `dsh plugin --profile <profile> add dsh-laya`) and start the Laya sidecar it talks to: ' +
   '`pip install "laya-mcp[mcp]"`, then `laya-mcp serve` (or set dsh-laya `lifecycle: spawn` with `spawnCommand: ["laya-mcp", "serve"]` so it starts automatically)'
@@ -129,8 +131,8 @@ export const LAYA_INSTALL =
  */
 export function setupPrompt({ hasLayaPlugin = false } = {}) {
   const laya = hasLayaPlugin
-    ? '3. Laya (optional): the URL of a Laya server (`laya-mcp serve`) to use instead of the installed dsh-laya plugin. Left blank, the router uses the dsh-laya plugin and its settings.'
-    : '3. Laya (optional): the URL of their own Laya server (`laya-mcp serve`), if they run one. ' +
+    ? `3. Laya (optional): the URL of a Laya server (${LAYA_KINDS}) to use instead of the installed dsh-laya plugin, plus an API key only if it needs one. Left blank, the router uses the dsh-laya plugin and its settings.`
+    : `3. Laya (optional): the URL of their own Laya server (${LAYA_KINDS}), if they run one, plus an API key only if it needs one. ` +
       `Left blank, the router uses the same endpoint dsh-laya uses by default, ${DSH_LAYA_URL}. ` +
       `If they have no Laya server, recommend that they ${LAYA_INSTALL}. Without Laya, routing uses embeddings and keyword matching only.`
   return [
@@ -203,9 +205,9 @@ export async function testSettings(config, { laya, fetch: fetchImpl = globalThis
   const layaCheck = async () => {
     if (config.selector !== 'laya') return { ok: false, line: `Laya: not used (selector is ${config.selector}).` }
     const url = directLayaUrl(config, Boolean(laya))
-    const client = url ? sidecarClient(url, { fetch: fetchImpl, retryMs: 0 }) : laya
+    const client = url ? sidecarClient(url, { apiKey: config.layaApiKey, fetch: fetchImpl, retryMs: 0 }) : laya
     const where = config.layaUrl
-      ? `the sidecar at ${url}`
+      ? `the Laya server at ${url}`
       : url
         ? `dsh-laya's default endpoint ${url} (dsh-laya is not installed)`
         : `the dsh-laya plugin's sidecar${laya.sidecarUrl ? ` at ${laya.sidecarUrl}` : ''}`
@@ -213,8 +215,9 @@ export async function testSettings(config, { laya, fetch: fetchImpl = globalThis
     try {
       const result = await withTimeout(client.ask(LAYA_PROBE, { signal: AbortSignal.timeout(timeoutMs) }), timeoutMs)
       const answer = result?.answers?.q0
-      if (typeof (answer?.noul ?? answer?.p_true) !== 'number') throw new Error('it answered, but not with a Laya decision; is this a `laya-mcp serve` sidecar?')
-      return { ok: true, line: `Laya: OK, ${where} answered a test question in ${elapsed(started)}.` }
+      if (typeof (answer?.noul ?? answer?.p_true) !== 'number') throw new Error('it answered, but not with a Laya decision; is this a Laya server?')
+      const via = client.route ? ` on ${client.route}` : ''
+      return { ok: true, line: `Laya: OK, ${where} answered a test question${via} in ${elapsed(started)}.` }
     } catch (error) {
       return { ok: false, line: `Laya: FAILED, ${where} (${reason(error)}).` }
     }
@@ -224,7 +227,8 @@ export async function testSettings(config, { laya, fetch: fetchImpl = globalThis
   const lines = [embeddingLine, optimizerLine, layaResult.line]
   if (!layaResult.ok && config.selector === 'laya') {
     const fix = config.layaUrl
-      ? 'To fix Laya: make sure that URL is a running `laya-mcp serve` sidecar (install it with `pip install "laya-mcp[mcp]"`), ' +
+      ? 'To fix Laya: make sure that URL is a running Laya server (laya-mcp, laya-serve, or a sidecar); if it uses a route other than ' +
+        '`/ask`, `/v1/systemone`, or `/system-one`, include the route in the URL; set the Laya API key if it needs one; ' +
         'or clear the Laya URL to use the dsh-laya plugin instead.'
       : laya
         ? 'To fix Laya: start the sidecar dsh-laya points at (`pip install "laya-mcp[mcp]"`, then `laya-mcp serve`), set dsh-laya ' +
@@ -253,6 +257,7 @@ export const SETUP_TOOL_PARAMETERS = {
   optimizerApiKey: { type: 'string', description: 'API key for that endpoint, if it needs one.' },
   optimizerModel: { type: 'string', description: 'Model for the optimizer. Required with optimizerBaseUrl or optimizerProvider.' },
   optimizerProvider: { type: 'string', description: 'DeepSeek Harness provider id, used when optimizerBaseUrl is empty.' },
-  layaUrl: { type: 'string', description: 'URL of a `laya-mcp serve` sidecar to use instead of the dsh-laya plugin. Empty string uses the dsh-laya plugin and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.' },
+  layaUrl: { type: 'string', description: 'URL of a Laya server (laya-mcp, laya-serve, or a sidecar) to use instead of the dsh-laya plugin. The host URL is enough; the route is found automatically. Empty string uses the dsh-laya plugin and its settings, or dsh-laya\'s default endpoint (http://127.0.0.1:8787) when it is not installed.' },
+  layaApiKey: { type: 'string', description: 'API key for that Laya server, if it needs one.' },
   selector: { type: 'string', description: 'How skills and tool groups are judged: laya, embeddings, or bm25.' },
 }
